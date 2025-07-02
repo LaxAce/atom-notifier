@@ -1,6 +1,6 @@
 import express from "express";
 import * as dotenv from "dotenv";
-import { checkForNewContests } from "./services";
+import { checkForNewContests, checkForNewRatingActivity } from "./services";
 
 dotenv.config();
 
@@ -11,5 +11,6 @@ const port = process.env.PORT || 3030;
 app.use(express.json());
 
 checkForNewContests();
+checkForNewRatingActivity();
 
 app.listen(port, () => console.log(`Listening on port ${port}!`));
