@@ -14,5 +14,6 @@ export const constants = {
         activityFieldUrl: process.env.ACTIVITY_FIELD_URL,
         contestCheckInterval: process.env.CONTEST_CHECK_INTERVAL,
         activityFieldCookies: process.env.ACTIVITY_FIELD_COOKIES,
+        activityCheckInterval: process.env.ACTIVITY_CHECK_INTERVAL,
     }
 }
