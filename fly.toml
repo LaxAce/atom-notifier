@@ -1,0 +1,18 @@
+# fly.toml app configuration file generated for atom-notifier on 2025-08-29T20:55:56Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'atom-notifier'
+primary_region = 'arn'
+
+[build]
+
+[processes]
+  worker="npm run start"
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
