@@ -8,6 +8,7 @@ const gistHeaders = {
 
 export async function readStateFromGist(): Promise<{ lastContestId: string | null; lastActivityKey: string | null }> {
     try {
+        console.log("=======", "gistUrl", constants.gitHub.gistUrl, "github-token", constants.gitHub.githubToken )
         const res = await axios.get(`${constants.gitHub.gistUrl}/${constants.gitHub.gistId}`, {
             headers: gistHeaders,
         });
