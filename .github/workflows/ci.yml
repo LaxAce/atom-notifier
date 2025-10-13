@@ -34,8 +34,8 @@ jobs:
           USER_ID: ${{ secrets.USER_ID }}
           GIST_URL: ${{ secrets.GIST_URL }}
           GIST_NAME: ${{ secrets.GIST_NAME }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           CONTEST_URL: ${{ secrets.CONTEST_URL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
           ACTIVITY_FIELD_URL: ${{ secrets.ACTIVITY_FIELD_URL }}
           ACTIVITY_FIELD_COOKIES: ${{ secrets.ACTIVITY_FIELD_COOKIES }}
