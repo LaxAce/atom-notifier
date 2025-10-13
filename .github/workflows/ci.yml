@@ -2,7 +2,7 @@ name: Notifier CI
 
 on:
   schedule:
-    - cron: "*/3 * * * *" # every 3 minutes
+    - cron: "0 * * * *" # every 3 minutes (*/3)
   workflow_dispatch: # trigger anytime i like 🤪
 
 jobs:
