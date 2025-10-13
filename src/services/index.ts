@@ -1,9 +1,9 @@
-import fs from "fs";
 import axios from "axios";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import { constants } from "../constants";
 import { newActivityTemplate, newContestTemplate } from "../template";
+import { readStateFromGist, writeStateToGist } from "../utils/gistStore";
 
 const transporter = nodemailer.createTransport({
     service: constants.mailServer.service,
@@ -18,14 +18,11 @@ const getActivityKeyFromFields = (ratingType: string, submission: string, contes
 }
 
 export const checkForNewContests = async () => {
-    let lastSeenContestId = null;
-
-    // load last ID
-    if (fs.existsSync("lastContest.json")) {
-        lastSeenContestId = JSON.parse(fs.readFileSync("lastContest.json", "utf-8")).id;
-    }
-
     try {
+        // Get lastContestId from gitHub Gist
+        const state = await readStateFromGist();
+        const lastSeenContestId = state.lastContestId;
+
         console.log("STARTED checking for new contests");
         const response = await axios.get(constants.atom.contestUrl || "", {
             headers: {
@@ -50,8 +47,11 @@ export const checkForNewContests = async () => {
             console.log('Contest title:', contestTitle);
             console.log('Contest URL:', contestUrl);
 
-            // Update cache
-            fs.writeFileSync('lastContest.json', JSON.stringify({ id: newestContestId }));
+            // Save lastContestId to gitHub Gist
+            await writeStateToGist({
+                ...state,
+                lastContestId: newestContestId,
+            });
 
             // Send email
             await transporter.sendMail({
@@ -72,13 +72,11 @@ export const checkForNewContests = async () => {
 };
 
 export const checkForNewRatingActivity = async () => {
-    let lastSeenActivityKey: string | null = null;
-    // Load last activity date
-    if (fs.existsSync("mostRecentActivity.json")) {
-        lastSeenActivityKey = JSON.parse(fs.readFileSync("mostRecentActivity.json", "utf-8")).id;
-    }
-
     try {
+        // Get lastActivityKey from gitHub Gist
+        const state = await readStateFromGist();
+        const lastSeenActivityKey = state.lastActivityKey;
+
         console.log("STARTED checking for new rating activity");
         const response = await axios.get(constants.atom.activityFieldUrl || "", {
             headers: {
@@ -103,13 +101,16 @@ export const checkForNewRatingActivity = async () => {
 
         if (!mostRecentHtml) return console.log('No activity found.');
 
-        const mostRecentActivityKey = getActivityKeyFromFields(ratingType, submission, contestUrl);
+        const currentActivityKey = getActivityKeyFromFields(ratingType, submission, contestUrl);
 
-        if (mostRecentActivityKey !== lastSeenActivityKey) {
-            console.log('New activity found:', mostRecentActivityKey);
+        if (currentActivityKey !== lastSeenActivityKey) {
+            console.log('New activity found:', currentActivityKey);
 
-            // Update cache
-            fs.writeFileSync('mostRecentActivity.json', JSON.stringify({ id: mostRecentActivityKey }));
+            // Save currentActivityKey to gitHub Gist
+            await writeStateToGist({
+                ...state,
+                lastActivityKey: currentActivityKey,
+            });
 
             // Send email
             await transporter.sendMail({
@@ -120,7 +121,7 @@ export const checkForNewRatingActivity = async () => {
                 html: newActivityTemplate(ratingType, submission, contestUrl),
             });
 
-            console.log('New activity found:', mostRecentActivityKey);
+            console.log('New activity found:', currentActivityKey);
         } else {
             console.log('No new activity...');
         }
