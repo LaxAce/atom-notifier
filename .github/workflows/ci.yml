@@ -21,7 +21,10 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run server
+      - name: Build project
+        run: npm run build
+
+      - name: Run script
         run: npm run start
         env:
           PASS: ${{ secrets.PASS }}
