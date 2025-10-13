@@ -129,5 +129,6 @@ export const checkForNewRatingActivity = async () => {
     }
 };
 
-setInterval(checkForNewContests, Number(constants.atom.contestCheckInterval));
-setInterval(checkForNewRatingActivity, Number(constants.atom.activityCheckInterval));
+// TODO: remove this after test - github action is taking care of this now
+// setInterval(checkForNewContests, Number(constants.atom.contestCheckInterval));
+// setInterval(checkForNewRatingActivity, Number(constants.atom.activityCheckInterval));
