@@ -1,16 +1,34 @@
-name: Notifier CI
-on: push
+name: Notifier CI/CD
+
+on:
+  schedule:
+    - cron: "*/3 * * * *" # every 3 minutes
+  workflow_dispatch: # trigger anytime i like 🤪
+
 jobs:
-  build:
+  run-notifier:
     runs-on: ubuntu-latest
+
     steps:
       - name: Get code
         uses: actions/checkout@v3
+
       - name: Use Node.js 20
         uses: actions/setup-node@v5
         with:
           node-version: 20
+
       - name: Install Dependencies
         run: npm ci
-      - name: Build and Run Test
-        run: npm run build && npm run test
+
+      - name: Run server
+        run: npm run start
+        env:
+          PASS: ${{ secrets.PASS }}
+          PORT: ${{ secrets.PORT }}
+          SERVICE: ${{ secrets.SERVICE }}
+          USER_ID: ${{ secrets.USER_ID }}
+          CONTEST_URL: ${{ secrets.CONTEST_URL }}
+          CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
+          ACTIVITY_FIELD_URL: ${{ secrets.ACTIVITY_FIELD_URL }}
+          ACTIVITY_FIELD_COOKIES: ${{ secrets.ACTIVITY_FIELD_COOKIES }}
