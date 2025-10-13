@@ -2,7 +2,7 @@ import axios from "axios";
 import { constants } from "../constants";
 
 const gistHeaders = {
-    Authorization: `Bearer ${constants.gitHub.githubToken}`,
+    Authorization: `Bearer ${constants.gitHub.gistToken}`,
     "User-Agent": "atom-notifier",
 };
 

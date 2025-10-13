@@ -19,7 +19,7 @@ export const constants = {
     gitHub: {
         gistId: process.env.GIST_ID,
         gistUrl: process.env.GIST_URL,
+        gistToken: process.env.GIST_TOKEN,
         gistName: process.env.GIST_NAME ?? "",
-        githubToken: process.env.GITHUB_TOKEN,
     }
 }
