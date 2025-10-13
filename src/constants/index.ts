@@ -15,5 +15,11 @@ export const constants = {
         contestCheckInterval: process.env.CONTEST_CHECK_INTERVAL,
         activityFieldCookies: process.env.ACTIVITY_FIELD_COOKIES,
         activityCheckInterval: process.env.ACTIVITY_CHECK_INTERVAL,
+    },
+    gitHub: {
+        gistId: process.env.GIST_ID,
+        gistUrl: process.env.GIST_URL,
+        gistName: process.env.GIST_NAME ?? "",
+        githubToken: process.env.GITHUB_TOKEN,
     }
 }

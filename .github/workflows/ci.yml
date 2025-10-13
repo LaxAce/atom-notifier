@@ -1,4 +1,4 @@
-name: Notifier CI/CD
+name: Notifier CI
 
 on:
   schedule:
@@ -29,9 +29,13 @@ jobs:
         env:
           PASS: ${{ secrets.PASS }}
           PORT: ${{ secrets.PORT }}
+          GIST_ID: ${{ secrets.GIST_ID }}
           SERVICE: ${{ secrets.SERVICE }}
           USER_ID: ${{ secrets.USER_ID }}
+          GIST_URL: ${{ secrets.GIST_URL }}
+          GIST_NAME: ${{ secrets.GIST_NAME }}
           CONTEST_URL: ${{ secrets.CONTEST_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
           ACTIVITY_FIELD_URL: ${{ secrets.ACTIVITY_FIELD_URL }}
           ACTIVITY_FIELD_COOKIES: ${{ secrets.ACTIVITY_FIELD_COOKIES }}
