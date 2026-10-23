@@ -231,10 +231,11 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 // Wait for form to process
                 await page.waitForTimeout(2000);
 
-                // Check for error messages
-                const errEl = await page.locator("[class*='error']:visible, [class*='alert']:visible, [class*='danger']:visible").first().textContent().catch(() => "");
+                // Check for error messages — use allTextContents() so we don't wait 30s for elements that aren't there
+                const errEls = await page.locator("[class*='error']:visible, [class*='alert']:visible, [class*='danger']:visible").allTextContents().catch(() => []);
+                const errEl = errEls.join(" ").trim();
                 if (errEl && /error|invalid|failed|not accept/i.test(errEl)) {
-                    throw new Error(errEl.trim().slice(0, 200));
+                    throw new Error(errEl.slice(0, 200));
                 }
 
                 submitted.push(name);
