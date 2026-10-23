@@ -102,7 +102,7 @@ export async function generateNames({
     requireDomains = true,
     temperature = 0.7,
 }) {
-    const openai = new OpenAI({ apiKey: process.env.PENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
     const [maxLength, maxWords] = STYLE_CONSTRAINTS[style] || STYLE_CONSTRAINTS.auto;

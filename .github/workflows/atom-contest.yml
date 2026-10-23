@@ -51,7 +51,7 @@ jobs:
         if: ${{ inputs.contest_url }}
         working-directory: scripts/atom
         env:
-          PENAI_API_KEY: ${{ secrets.PENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
@@ -66,7 +66,7 @@ jobs:
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
         working-directory: scripts/atom
         env:
-          PENAI_API_KEY: ${{ secrets.PENAI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}

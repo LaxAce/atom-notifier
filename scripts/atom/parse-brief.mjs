@@ -157,7 +157,7 @@ function extractKeywords(brief, title) {
 export async function compressBrief(rawBrief, title, industry) {
     if (rawBrief.length <= 600) return rawBrief;
 
-    const openai = new OpenAI({ apiKey: process.env.PENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
     const res = await openai.chat.completions.create({
