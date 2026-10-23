@@ -60,83 +60,84 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
         await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
         await page.waitForTimeout(2000);
 
-        // atom.com hides the entry form behind a "SUBMIT YOUR ENTRY" button.
-        // Click it to open the submission form/modal, then find the input inside.
-        const submitBtnSelectors = [
+        // atom.com: click "SUBMIT YOUR ENTRY" to open the side panel with the entry form
+        const openFormSelectors = [
             "a:has-text('SUBMIT YOUR ENTRY')",
-            "a:has-text('Submit Your Entry')",
             "button:has-text('SUBMIT YOUR ENTRY')",
+            "a:has-text('Submit Your Entry')",
             "button:has-text('Submit Your Entry')",
-            ".submit-entry-btn",
-            "[href*='submit']",
         ];
-        for (const sel of submitBtnSelectors) {
+        let formOpened = false;
+        for (const sel of openFormSelectors) {
             try {
                 const btn = page.locator(sel).first();
                 if (await btn.count() > 0 && await btn.isVisible()) {
                     await btn.click();
-                    console.error(`Clicked "Submit Your Entry" button: ${sel}`);
+                    console.error(`Opened entry form via: ${sel}`);
                     await page.waitForTimeout(2000);
+                    formOpened = true;
                     break;
                 }
             } catch { /* ignore */ }
         }
+        if (!formOpened) console.error("Warning: could not find 'SUBMIT YOUR ENTRY' button — form may already be open");
 
+        // The form has a "Domain Name" labeled input — find it
         // Log all visible inputs for debugging
-        const allInputs = await page.locator("input[type='text'], input:not([type]), textarea").all();
-        console.error(`Found ${allInputs.length} text input(s) on page after opening form`);
+        const allInputs = await page.locator("input[type='text'], input:not([type='hidden']):not([type='checkbox']):not([type='radio'])").all();
+        console.error(`Found ${allInputs.length} text input(s) visible after opening form`);
         for (const inp of allInputs.slice(0, 10)) {
             const placeholder = await inp.getAttribute("placeholder").catch(() => "");
-            const name = await inp.getAttribute("name").catch(() => "");
+            const nm = await inp.getAttribute("name").catch(() => "");
             const id = await inp.getAttribute("id").catch(() => "");
             const cls = await inp.getAttribute("class").catch(() => "");
-            console.error(`  input: name="${name}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 80)}"`);
+            console.error(`  input: name="${nm}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 80)}"`);
         }
 
-        const submissionSelectors = [
-            "input[placeholder*='name' i]",
-            "input[placeholder*='entry' i]",
-            "input[placeholder*='submit' i]",
-            "input[placeholder*='type' i]",
-            "input[placeholder*='suggest' i]",
-            "input[placeholder*='brand' i]",
+        // Selector priority: labeled "Domain Name", common name/domain field names, then any visible text input
+        const inputSelectors = [
             "input[placeholder*='domain' i]",
-            ".submission-input input",
-            ".submit-entry input",
-            ".entry-form input[type='text']",
-            ".modal input[type='text']",
+            "input[placeholder*='name' i]",
+            "input[name*='domain' i]",
+            "input[name*='name' i]",
+            "input[name*='entry' i]",
             "#entry-name",
+            "#domain_name",
             "#name_suggestion",
-            "input[name='entry']",
-            "input[name='name']",
-            "input[name*='name']",
-            "input[name*='entry']",
-            "input[name*='domain']",
-            "form input[type='text']",
+            ".entry-form input[type='text']",
+            ".submit-panel input[type='text']",
+            "[class*='submit'] input[type='text']",
+            "[class*='entry'] input[type='text']",
         ];
 
-        let inputLocator = null;
-        for (const sel of submissionSelectors) {
-            const loc = page.locator(sel);
-            const count = await loc.count();
-            if (count > 0) {
-                const visible = await loc.first().isVisible().catch(() => false);
-                if (visible) {
-                    inputLocator = loc.first();
-                    console.error(`Found submission input: ${sel}`);
-                    break;
+        async function findDomainInput() {
+            for (const sel of inputSelectors) {
+                const loc = page.locator(sel);
+                if (await loc.count() > 0) {
+                    const visible = await loc.first().isVisible().catch(() => false);
+                    if (visible) {
+                        console.error(`Found domain input: ${sel}`);
+                        return loc.first();
+                    }
                 }
             }
+            // Last resort: first visible text input on page
+            const anyInput = page.locator("input[type='text']").first();
+            if (await anyInput.isVisible().catch(() => false)) {
+                console.error("Found domain input via fallback: first visible text input");
+                return anyInput;
+            }
+            return null;
         }
 
-        if (!inputLocator) {
-            // Dump page HTML for debugging
+        const firstInput = await findDomainInput();
+        if (!firstInput) {
             const html = await page.content();
             const debugFile = path.join(__dirname, "logs", "debug-page.html");
             const { mkdirSync, writeFileSync } = await import("fs");
             mkdirSync(path.join(__dirname, "logs"), { recursive: true });
             writeFileSync(debugFile, html);
-            throw new Error(`Could not find submission input on ${contestUrl}. Dumped HTML to ${debugFile}. Update selectors in submit-entries.mjs.`);
+            throw new Error(`Could not find Domain Name input on ${contestUrl}. HTML dumped to ${debugFile}.`);
         }
 
         // Get already-submitted names to avoid duplicates
@@ -144,15 +145,8 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
         const existingSet = new Set(existingEntries.map((n) => n.trim().toLowerCase()));
         console.error(`Already submitted ${existingEntries.length} entries in this contest`);
 
-        // Submit submit button selector
-        const submitSelectors = [
-            "button[type='submit']",
-            ".submit-entry-btn",
-            ".btn-submit",
-            "button:has-text('Submit')",
-            "button:has-text('Enter')",
-        ];
-
+        // Submit one name at a time:
+        // fill Domain Name input → click orange Submit button → repeat
         for (const name of names) {
             if (existingSet.has(name.toLowerCase())) {
                 console.error(`Skip (already submitted): ${name}`);
@@ -167,31 +161,25 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
             }
 
             try {
-                // Clear and fill the input
+                // Find the input fresh each iteration (panel may re-render)
+                const inputLocator = await findDomainInput();
+                if (!inputLocator) throw new Error("Domain Name input disappeared");
+
                 await inputLocator.clear();
                 await inputLocator.fill(name);
-                await sleep(500);
+                await sleep(300);
 
-                // Find and click submit button
-                let submitted_this = false;
-                for (const sel of submitSelectors) {
-                    const btn = page.locator(sel).first();
-                    if (await btn.count() > 0 && await btn.isVisible()) {
-                        await btn.click();
-                        submitted_this = true;
-                        break;
-                    }
-                }
-
-                if (!submitted_this) {
-                    // Try pressing Enter as fallback
+                // Click the orange "Submit" button in the panel
+                const submitBtn = page.locator("button:has-text('Submit'), input[type='submit'][value*='Submit' i]").first();
+                if (await submitBtn.count() > 0 && await submitBtn.isVisible()) {
+                    await submitBtn.click();
+                } else {
                     await inputLocator.press("Enter");
                 }
 
-                // Wait for submission to register (success indicator or new entry in list)
                 await page.waitForTimeout(1500);
 
-                // Check for error message
+                // Check for error
                 const errorMsg = await page.locator(".error-message, .alert-danger, .submission-error").first().textContent().catch(() => "");
                 if (errorMsg && errorMsg.toLowerCase().includes("error")) {
                     throw new Error(errorMsg.trim());
@@ -201,7 +189,6 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 submitted.push(name);
                 existingSet.add(name.toLowerCase());
 
-                // Polite delay between submissions (~2 seconds)
                 await sleep(2000);
             } catch (err) {
                 console.error(`Failed: ${name} — ${err.message}`);
