@@ -32,13 +32,21 @@ export function selectPremiumNames(brief, industry, count = 5) {
     const scored = real.map((entry) => {
         let score = 0;
 
-        // Industry match
-        if (entry.industry?.some((ind) => industryLower.includes(ind.toLowerCase()))) {
+        // Specific industry match — highest priority
+        const industries = entry.industry?.map((i) => i.toLowerCase()) || [];
+        if (industryLower && industries.some((ind) => industryLower.includes(ind) || ind.includes(industryLower))) {
             score += 10;
         }
 
-        // Name appears in brief keywords (unlikely but bonus)
-        if (briefLower.includes(entry.name.toLowerCase())) score += 5;
+        // Brief keyword overlap
+        if (industries.some((ind) => briefLower.includes(ind))) score += 5;
+
+        // Generalist names always get a guaranteed base score so they serve as fallback
+        // when no specific industry match exists
+        if (industries.includes("general")) score += 3;
+
+        // Name appears literally in brief (bonus)
+        if (briefLower.includes(entry.name.toLowerCase())) score += 8;
 
         // Short names score higher (atom.com clients prefer them)
         score += Math.max(0, 10 - entry.name.length);
@@ -46,9 +54,11 @@ export function selectPremiumNames(brief, industry, count = 5) {
         return { ...entry, score };
     });
 
-    // Sort by score descending
-    scored.sort((a, b) => b.score - a.score);
+    // Sort by score descending, then alphabetically for stable ordering
+    scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
+    // Always return real premium names — never fewer than requested
+    // (the full list has 43 so we can always fill `count`)
     return scored.slice(0, count).map((e) => e.name);
 }
 

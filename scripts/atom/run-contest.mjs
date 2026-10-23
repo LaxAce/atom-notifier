@@ -102,15 +102,11 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
             NAMES_FROM_PREMIUM
         );
 
-        // If not enough premium names, fill with more AI names
-        if (premiumNames.length < NAMES_FROM_PREMIUM) {
-            const extra = aiNames.splice(0, NAMES_FROM_PREMIUM - premiumNames.length);
-            console.error(`  Only ${premiumNames.length} premium names found, using ${extra.length} extra AI names`);
-            premiumNames = [...premiumNames, ...extra];
-        }
-
-        log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames };
-        console.error(`  Premium names: ${premiumNames.join(", ")}`);
+        // Premium domains are always real listings — generalist names serve as built-in fallback.
+        // Never substitute AI names here.
+        const industryNote = briefData.industry || "no industry detected — using generalist names";
+        log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
+        console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
     } catch (err) {
         log.steps.selectPremium = { success: false, error: err.message };
         console.error(`  Warning: premium selection failed — ${err.message}`);
