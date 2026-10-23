@@ -56,28 +56,61 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
 
     try {
         console.error(`Navigating to contest: ${contestUrl}`);
-        await page.goto(contestUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+        // Use networkidle so React/JS fully renders the form before we look for inputs
+        await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
+        await page.waitForTimeout(2000);
 
-        // Check if we're logged in
-        const isLoggedIn = await page.locator('[data-testid="user-menu"], .user-menu, .account-menu').count() > 0;
-        if (!isLoggedIn) {
-            const loginIndicator = await page.locator(".logout, .sign-out, [href*='logout']").count() > 0;
-            if (!loginIndicator) {
-                throw new Error("Not logged in to atom.com — CONTEST_COOKIES may be expired");
-            }
+        // Try to activate the submission tab (atom.com uses tab-based UI)
+        const tabSelectors = [
+            "a[href*='#tab-2']",
+            "a[href*='submit']",
+            "[data-tab='submit']",
+            "a:has-text('Submit Entry')",
+            "a:has-text('Submit Name')",
+            "li.tab a:nth-of-type(2)",
+        ];
+        for (const sel of tabSelectors) {
+            try {
+                const tab = page.locator(sel).first();
+                if (await tab.count() > 0 && await tab.isVisible()) {
+                    await tab.click();
+                    await page.waitForTimeout(1000);
+                    console.error(`Clicked submission tab: ${sel}`);
+                    break;
+                }
+            } catch { /* ignore tab click errors */ }
         }
 
-        // Check contest type and find submission input
-        // atom.com (Squadhelp) submission area — selectors based on known structure
-        // These may need updating if atom.com changes their UI
+        // Log all visible inputs for debugging
+        const allInputs = await page.locator("input[type='text'], input:not([type])").all();
+        console.error(`Found ${allInputs.length} text input(s) on page`);
+        for (const inp of allInputs.slice(0, 10)) {
+            const placeholder = await inp.getAttribute("placeholder").catch(() => "");
+            const name = await inp.getAttribute("name").catch(() => "");
+            const id = await inp.getAttribute("id").catch(() => "");
+            const cls = await inp.getAttribute("class").catch(() => "");
+            console.error(`  input: name="${name}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 60)}"`);
+        }
+
         const submissionSelectors = [
-            "input[placeholder*='name']",
-            "input[placeholder*='entry']",
-            "input[placeholder*='submit']",
+            "input[placeholder*='name' i]",
+            "input[placeholder*='entry' i]",
+            "input[placeholder*='submit' i]",
+            "input[placeholder*='type' i]",
+            "input[placeholder*='suggest' i]",
+            "input[placeholder*='brand' i]",
+            "input[placeholder*='domain' i]",
             ".submission-input input",
+            ".submit-entry input",
+            ".entry-form input[type='text']",
             "#entry-name",
+            "#name_suggestion",
             "input[name='entry']",
             "input[name='name']",
+            "input[name*='name']",
+            "input[name*='entry']",
+            "input[name*='domain']",
+            "form input[type='text']",
         ];
 
         let inputLocator = null;
