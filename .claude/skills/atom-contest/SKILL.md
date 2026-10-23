@@ -1,7 +1,7 @@
 # Atom Contest Automation Skill
 
 ## Purpose
-Participate in naming contests on atom.com autonomously. Read briefs, generate names using AiNameIt's OpenAI logic, mix in premium listings, and submit 40 entries per contest.
+Participate in naming contests on atom.com autonomously. Read briefs, generate names via OpenAI, mix in premium listings when allowed, and submit 40 entries per contest.
 
 ## When to Use
 Invoke with `/atom-contest` when:
@@ -13,25 +13,10 @@ Invoke with `/atom-contest` when:
 
 ## STEP 1 — Check for New Contests
 
-If you don't have a contest URL already:
+If you don't have a contest URL already, the cron workflow picks one automatically from the atom-notifier Gist state. Or run manually:
 
 ```bash
-cd /home/user/laxace/atom-notifier
-node -e "
-const axios = require('axios');
-(async () => {
-  const r = await axios.get(process.env.CONTEST_URL, {
-    headers: { Cookie: process.env.CONTEST_COOKIES, 'User-Agent': 'Mozilla/5.0' }
-  });
-  const m = r.data.match(/<ul class=\"content pull-left watching_contests\">\s*<li[^>]*data-contest-id=\"([^\"]+)\"[^>]*>[\s\S]*?<a href=\"([^\"]+)\">/);
-  console.log(JSON.stringify({ id: m?.[1], url: 'https://atom.com' + m?.[2] }));
-})();
-" 2>/dev/null
-```
-
-Or just run the automation script directly:
-```bash
-cd /home/user/ai-name-it
+cd /home/user/atom-notifier
 node scripts/atom/run-contest.mjs [CONTEST_URL]
 ```
 
@@ -39,15 +24,15 @@ node scripts/atom/run-contest.mjs [CONTEST_URL]
 
 ## STEP 2 — Parse the Contest Brief
 
-The brief is scraped from atom.com with your session cookies. Key data to extract:
+The brief is scraped from atom.com using Playwright (bypasses Cloudflare). Key data extracted:
 - **Contest title** — short description of what business/product this is for
 - **Contest type** — "Company Name" or "Tagline"
 - **Product description** — long-form brief (often 200-1000+ words)
 - **Industry** — tech, food, health, finance, etc.
 - **Style preference** — Modern? Traditional? Creative? Playful?
 - **Domain extension** — .com only? .io? Any?
-- **Keywords** — any specific words they want included
-- **Do NOT include** words — blacklist
+- **Keywords** — specific words they want included
+- **Premium Domains Allowed** — Yes/No (detected from brief text)
 
 Run `node scripts/atom/parse-brief.mjs <CONTEST_URL>` to get structured JSON output.
 
@@ -58,17 +43,6 @@ Run `node scripts/atom/parse-brief.mjs <CONTEST_URL>` to get structured JSON out
 **Hard limits:**
 - Description: MAX 600 characters
 - Keywords: MAX 180 characters
-
-**Compression rules:**
-1. Extract the single most important sentence about what the business does
-2. Add the target audience in 5-10 words
-3. Add the core brand values in 5 words
-4. Total ≤ 600 chars
-
-Example compression:
-> "We are a B2B SaaS company helping mid-market CFOs automate accounts receivable reconciliation with AI-powered invoice matching, reducing DSO by 40% and eliminating manual data entry across ERPs including SAP and NetSuite." 
-→
-> "B2B SaaS platform helping CFOs automate accounts receivable reconciliation using AI. Reduces manual work, integrates with SAP/NetSuite. Targets mid-market finance teams. Values: efficiency, accuracy, simplicity."
 
 ---
 
@@ -86,28 +60,23 @@ Map what the contest brief asks for → AiNameIt style:
 | Minimal, Short | `brandable_names` |
 | Catchy tagline (if tagline contest) | `short_phrase` |
 
-**Default to `auto` if unclear.** The AUTO style produces a mix of all styles.
-
-**Style → name length + word count rules:**
-| Style | Max chars | Max words |
-|---|---|---|
-| auto | 12 | 2 |
-| compound | 12 | 2 |
-| brandable_names | 8 | 1 |
-| blends | 10 | 2 |
-| creative_spelling | 8 | 2 |
-| non_english_words | 7 | 1 |
-| real_words | 8 | 1 |
-| short_phrase | 15 | 3 |
+**Default to `auto` if unclear.**
 
 ---
 
-## STEP 5 — Generate 35 Names
+## STEP 5 — Generate Names
 
-Run the name generator directly (bypasses AiNameIt UI, auth, and credit system):
+**If premium domains ARE allowed:**
+- Generate **35 AI names**
+- Pick **5 premium listings** from `premium-listings.json`
+- Submit **40 total** (5 premium first, then 35 AI)
+
+**If premium domains are NOT allowed** (brief says "Premium Domains Allowed: No"):
+- Generate **40 AI names**
+- Skip premium step entirely
 
 ```bash
-cd /home/user/ai-name-it
+cd /home/user/atom-notifier
 node scripts/atom/generate-names.mjs \
   --description "Your compressed brief here" \
   --keywords "keyword1,keyword2" \
@@ -116,24 +85,13 @@ node scripts/atom/generate-names.mjs \
   --count 35
 ```
 
-This calls OpenAI directly with the same prompt as AiNameIt, then checks domain availability via RapidAPI. Generates 60 names, filters to available ones, returns top 35.
-
-**Critical:** The script reads env vars from `.env.atom` (create from `.env.atom.example`).
-
-**Domain check budget awareness:**
-- RapidAPI domain checker: check current usage before running
-- Each "requireDomains=true" run uses ~60 API calls (1 per name per extension)
-- If near monthly limit, set `--no-domains` flag to skip domain checking
-
 ---
 
-## STEP 6 — Select 5 Premium Listings
+## STEP 6 — Select 5 Premium Listings (only if premiumAllowed=true)
 
-Premium listings are cached in `scripts/atom/premium-listings.json`. Pick the 5 most relevant to the contest brief:
+Premium listings are curated in `scripts/atom/premium-listings.json` (43 names, all .com Instant Transfer). The script scores by industry match and brief keyword overlap. Generalist names serve as fallback when no specific industry match exists.
 
-1. Read the premium listings file
-2. For each premium name, score relevance (does it fit the industry/style?)
-3. Pick top 5
+**IMPORTANT: Never substitute AI-generated names in premium slots.** If the contest doesn't allow premium domains, generate 40 AI names instead.
 
 ```bash
 node scripts/atom/select-premium.mjs \
@@ -141,30 +99,26 @@ node scripts/atom/select-premium.mjs \
   --industry "tech"
 ```
 
-If no good match exists, generate 5 more names to fill the gap.
-
 ---
 
 ## STEP 7 — Submit 40 Entries
 
 **Prerequisites:**
-- `ATOM_COOKIES` env var must be set with valid atom.com session cookies
+- `CONTEST_COOKIES` env var (GitHub secret) with valid atom.com session cookies
 - Cookies expire! If you get auth errors, tell the user to refresh cookies from their browser
+
+The script uses Playwright with headless Chromium. It:
+1. Sets session cookies from `CONTEST_COOKIES`
+2. Navigates to the contest page (waits for full React render)
+3. Clicks "SUBMIT YOUR ENTRY" to open the side panel form
+4. Finds the "Domain Name *" input
+5. Submits each name with a ~2 second delay between entries
 
 ```bash
 node scripts/atom/submit-entries.mjs \
   --contest-url "https://atom.com/contest/..." \
   --names "Name1,Name2,Name3,..."
 ```
-
-The script uses Playwright with headless Chromium. It:
-1. Sets session cookies
-2. Navigates to the contest page
-3. Finds the "Submit Entry" form
-4. Submits each name with a 1-2 second delay between entries
-5. Logs success/failure for each name
-
-**Rate: submit ~5 names/minute to avoid rate limiting.**
 
 ---
 
@@ -173,8 +127,9 @@ The script uses Playwright with headless Chromium. It:
 Run everything in one command:
 
 ```bash
-cd /home/user/ai-name-it
+cd /home/user/atom-notifier
 node scripts/atom/run-contest.mjs "https://atom.com/contest/12345"
+node scripts/atom/run-contest.mjs "https://atom.com/contest/12345" --dry-run
 ```
 
 This runs steps 2-7 automatically. Output is logged to `scripts/atom/logs/`.
@@ -183,53 +138,53 @@ This runs steps 2-7 automatically. Output is logged to `scripts/atom/logs/`.
 
 ## Environment Variables Required
 
-Create `scripts/atom/.env.atom` from `scripts/atom/.env.atom.example`:
+Set as GitHub Actions secrets (in the `atom-contest.yml` workflow):
 
 ```
-PENAI_API_KEY=        # OpenAI API key (note: PENAI not OPENAI - typo in codebase)
-OPENAI_MODEL=         # e.g. gpt-4o-mini or gpt-4o
-RAPIDAPI_KEY=         # RapidAPI key for domain checker
-RAPIDAPI_HOST=        # RapidAPI host
-DOMAIN_CHECKER_URL=   # Domain checker endpoint
-ATOM_COOKIES=         # atom.com session cookies (copy from browser DevTools)
+OPENAI_API_KEY=        # OpenAI API key
+OPENAI_MODEL=          # e.g. gpt-4o-mini or gpt-4o
+RAPIDAPI_KEY=          # RapidAPI key for domain checker
+RAPIDAPI_HOST=         # RapidAPI host
+DOMAIN_CHECKER_URL=    # Domain checker endpoint
+CONTEST_COOKIES=       # atom.com session cookies (copy from browser DevTools)
+CONTEST_URL=           # atom.com contest listing URL
+GIST_ID=               # GitHub Gist ID for shared state
+GIST_TOKEN=            # GitHub token with gist scope
+GIST_NAME=             # Gist filename for contest state
 ```
 
-**Getting ATOM_COOKIES:**
+**Getting CONTEST_COOKIES:**
 1. Log in to atom.com in Chrome
 2. Open DevTools → Network tab
 3. Refresh the page
 4. Click any request → Headers → copy the Cookie header value
-5. Paste as `ATOM_COOKIES=<value>`
+5. Set as `CONTEST_COOKIES` secret in GitHub Actions
 
 ---
 
 ## Premium Listings Cache
 
-File: `scripts/atom/premium-listings.json`
+File: `scripts/atom/premium-listings.json` (43 manually curated entries)
 
-User must populate this manually. Format:
+Format:
 ```json
 {
   "names": [
-    { "name": "ExampleName", "industry": "tech", "style": "brandable", "price": 1500 },
-    ...
-  ],
-  "lastUpdated": "2024-01-01"
+    { "name": "ExampleName", "domain": "ExampleName.com", "style": "brandable", "industry": ["tech", "general"] }
+  ]
 }
 ```
 
-To refresh from atom.com:
-```bash
-node scripts/atom/fetch-premium-listings.mjs
-```
-(Requires ATOM_COOKIES to be set)
+**There is no price field** — the filter in `select-premium.mjs` must never filter by price.
+
+To add new domains: edit `premium-listings.json` manually. There is no auto-sync script — do not create one, as it would overwrite the curated industry tags.
 
 ---
 
 ## Monitoring & Logs
 
 - Each run logs to `scripts/atom/logs/YYYY-MM-DD-HH-MM.json`
-- Log contains: contest URL, brief, names generated, names submitted, success rate
+- Log contains: contest URL, brief, names generated, names submitted, success/failure per name
 - Check logs for any failed submissions and re-run if needed
 
 ---
@@ -241,7 +196,6 @@ node scripts/atom/fetch-premium-listings.mjs
 3. **Domain matters** — .com is king; .io is acceptable for tech
 4. **AUTO style** — covers all bases, use for 80% of contests
 5. **Brandable over descriptive** — atom.com clients love Google/Slack-style names
-6. **Watch recent winners** — run `node scripts/atom/check-winners.mjs` monthly to calibrate
 
 ---
 
@@ -249,8 +203,10 @@ node scripts/atom/fetch-premium-listings.mjs
 
 | Problem | Fix |
 |---|---|
-| "Could not authenticate" on atom.com | Refresh ATOM_COOKIES from browser |
+| "Could not authenticate" on atom.com | Refresh `CONTEST_COOKIES` secret from browser |
 | Domain checker 429 errors | Too many calls; skip domain check with `--no-domains` |
 | OpenAI rate limit | Add delay between batches; already handled in script |
 | Contest already entered | Script checks for duplicate submissions before submitting |
-| Brief scraping fails | atom.com HTML structure changed; update selectors in parse-brief.mjs |
+| Brief scraping fails 403 | Cloudflare blocked IP — cookies may be expired; refresh `CONTEST_COOKIES` |
+| "Sorry, this contest is not accepting Premium" | Brief detection missed the "No" — script should have generated 40 AI names; check `premiumAllowed` in logs |
+| Form input not found | atom.com UI changed; update selectors in `submit-entries.mjs` |

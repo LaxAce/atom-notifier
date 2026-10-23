@@ -21,8 +21,8 @@ export function selectPremiumNames(brief, industry, count = 5) {
     const data = JSON.parse(readFileSync(listingsFile, "utf8"));
     const names = data.names || [];
 
-    // Filter out placeholder
-    const real = names.filter((n) => n.name !== "PLACEHOLDER" && n.price > 0);
+    // Filter out placeholders only — our JSON has no price field so never filter by price
+    const real = names.filter((n) => n.name && n.name !== "PLACEHOLDER");
     if (real.length === 0) return [];
 
     const briefLower = (brief || "").toLowerCase();

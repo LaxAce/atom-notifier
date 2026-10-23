@@ -129,6 +129,12 @@ export function parseContestHtml(html, url) {
     else if (domainText.includes(".ai")) extension = "ai";
     else if (domainText.includes(".co")) extension = "co";
 
+    // Premium Domains Allowed — look for the field in the brief
+    // atom.com shows "Premium Domains Allowed: Yes / No" in the contest brief
+    const fullText = $.text ? $.text() : $("body").text();
+    const premiumMatch = fullText.match(/premium domains? allowed[^a-z]*?(yes|no)/i);
+    const premiumAllowed = premiumMatch ? premiumMatch[1].toLowerCase() !== "no" : true; // default allow
+
     // Style keywords from the brief text
     const styleHints = extractStyleHints(briefText + " " + title);
 
@@ -144,6 +150,7 @@ export function parseContestHtml(html, url) {
         extension,
         styleHints,
         keywords,
+        premiumAllowed,
     };
 }
 
