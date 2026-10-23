@@ -1,11 +1,13 @@
 /**
  * Submit name entries to an atom.com contest using Playwright.
- * Navigates the contest page, fills in each name, and submits.
+ *
+ * atom.com batches submissions: the form shows 3 "Domain Name" slots.
+ * Fill all 3, click Submit, wait for reset, repeat.
  *
  * Usage:
  *   node submit-entries.mjs --contest-url "https://atom.com/contest/..." --names "Name1,Name2,..."
  *
- * Returns JSON to stdout: { submitted: [...], failed: [...] }
+ * Returns JSON to stdout: { submitted: [...], failed: [...], alreadySubmitted: [...] }
  */
 
 import { chromium } from "playwright";
@@ -37,9 +39,24 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
+// Chunk array into groups of n
+function chunk(arr, n) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+}
+
+const BATCH_SIZE = 3; // atom.com allows 3 entries per submission
+
 export async function submitEntries(contestUrl, names, { dryRun = false } = {}) {
     const cookies = process.env.CONTEST_COOKIES;
     if (!cookies) throw new Error("CONTEST_COOKIES env var is required");
+
+    if (dryRun) {
+        console.error(`[DRY RUN] Would submit ${names.length} names to ${contestUrl}:`);
+        names.forEach((n) => console.error(`  - ${n}`));
+        return { submitted: [...names], failed: [], alreadySubmitted: [] };
+    }
 
     console.error(`Launching browser (headless)...`);
     const browser = await chromium.launch({ headless: true });
@@ -54,13 +71,18 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
     const failed = [];
     const alreadySubmitted = [];
 
+    // Dismiss any browser alert dialogs automatically
+    page.on("dialog", async (dialog) => {
+        console.error(`Dialog: "${dialog.message()}" → dismissing`);
+        await dialog.accept();
+    });
+
     try {
         console.error(`Navigating to contest: ${contestUrl}`);
-        // Use networkidle so React/JS fully renders the form before we look for inputs
         await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
         await page.waitForTimeout(2000);
 
-        // atom.com: click "SUBMIT YOUR ENTRY" to open the side panel with the entry form
+        // Click "SUBMIT YOUR ENTRY" to open the side panel
         const openFormSelectors = [
             "a:has-text('SUBMIT YOUR ENTRY')",
             "button:has-text('SUBMIT YOUR ENTRY')",
@@ -73,128 +95,160 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 const btn = page.locator(sel).first();
                 if (await btn.count() > 0 && await btn.isVisible()) {
                     await btn.click();
-                    console.error(`Opened entry form via: ${sel}`);
+                    console.error(`Opened entry panel via: ${sel}`);
                     await page.waitForTimeout(2000);
                     formOpened = true;
                     break;
                 }
             } catch { /* ignore */ }
         }
-        if (!formOpened) console.error("Warning: could not find 'SUBMIT YOUR ENTRY' button — form may already be open");
-
-        // The form has a "Domain Name" labeled input — find it
-        // Log all visible inputs for debugging
-        const allInputs = await page.locator("input[type='text'], input:not([type='hidden']):not([type='checkbox']):not([type='radio'])").all();
-        console.error(`Found ${allInputs.length} text input(s) visible after opening form`);
-        for (const inp of allInputs.slice(0, 10)) {
-            const placeholder = await inp.getAttribute("placeholder").catch(() => "");
-            const nm = await inp.getAttribute("name").catch(() => "");
-            const id = await inp.getAttribute("id").catch(() => "");
-            const cls = await inp.getAttribute("class").catch(() => "");
-            console.error(`  input: name="${nm}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 80)}"`);
+        if (!formOpened) {
+            console.error("Warning: could not find 'SUBMIT YOUR ENTRY' button — panel may already be open");
         }
 
-        // Selector priority: labeled "Domain Name", common name/domain field names, then any visible text input
-        const inputSelectors = [
-            "input[placeholder*='domain' i]",
-            "input[placeholder*='name' i]",
-            "input[name*='domain' i]",
-            "input[name*='name' i]",
-            "input[name*='entry' i]",
-            "#entry-name",
-            "#domain_name",
-            "#name_suggestion",
-            ".entry-form input[type='text']",
-            ".submit-panel input[type='text']",
-            "[class*='submit'] input[type='text']",
-            "[class*='entry'] input[type='text']",
-        ];
-
-        async function findDomainInput() {
-            for (const sel of inputSelectors) {
-                const loc = page.locator(sel);
-                if (await loc.count() > 0) {
-                    const visible = await loc.first().isVisible().catch(() => false);
-                    if (visible) {
-                        console.error(`Found domain input: ${sel}`);
-                        return loc.first();
-                    }
-                }
-            }
-            // Last resort: first visible text input on page
-            const anyInput = page.locator("input[type='text']").first();
-            if (await anyInput.isVisible().catch(() => false)) {
-                console.error("Found domain input via fallback: first visible text input");
-                return anyInput;
-            }
-            return null;
-        }
-
-        const firstInput = await findDomainInput();
-        if (!firstInput) {
-            const html = await page.content();
-            const debugFile = path.join(__dirname, "logs", "debug-page.html");
-            const { mkdirSync, writeFileSync } = await import("fs");
-            mkdirSync(path.join(__dirname, "logs"), { recursive: true });
-            writeFileSync(debugFile, html);
-            throw new Error(`Could not find Domain Name input on ${contestUrl}. HTML dumped to ${debugFile}.`);
-        }
-
-        // Get already-submitted names to avoid duplicates
+        // Get already-submitted names to skip duplicates
         const existingEntries = await page.locator(".my-entries .entry-name, .submitted-entries li, .my-submissions .name").allTextContents();
         const existingSet = new Set(existingEntries.map((n) => n.trim().toLowerCase()));
         console.error(`Already submitted ${existingEntries.length} entries in this contest`);
 
-        // Submit one name at a time:
-        // fill Domain Name input → click orange Submit button → repeat
-        for (const name of names) {
-            if (existingSet.has(name.toLowerCase())) {
-                console.error(`Skip (already submitted): ${name}`);
-                alreadySubmitted.push(name);
-                continue;
+        // Filter out already-submitted names
+        const toSubmit = names.filter((n) => {
+            if (existingSet.has(n.toLowerCase())) {
+                console.error(`Skip (already submitted): ${n}`);
+                alreadySubmitted.push(n);
+                return false;
+            }
+            return true;
+        });
+
+        console.error(`Submitting ${toSubmit.length} names in batches of ${BATCH_SIZE}...`);
+
+        // Submit in batches of 3
+        const batches = chunk(toSubmit, BATCH_SIZE);
+        for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+            const batch = batches[batchIdx];
+            console.error(`\nBatch ${batchIdx + 1}/${batches.length}: ${batch.join(", ")}`);
+
+            // Find all visible "Domain Name" inputs in the panel
+            // atom.com shows 3 numbered slots; fill each one
+            const domainInputSelectors = [
+                "input[placeholder*='domain' i]",
+                "input[placeholder*='name' i]",
+                "input[name*='domain' i]",
+                "input[name*='name' i]",
+                "input[name*='entry' i]",
+                ".entry-form input[type='text']",
+                ".submit-panel input[type='text']",
+                "[class*='submit'] input[type='text']",
+                "[class*='entry'] input[type='text']",
+            ];
+
+            // Collect all visible text inputs in the panel
+            async function getVisibleInputs() {
+                for (const sel of domainInputSelectors) {
+                    const locs = page.locator(sel);
+                    const count = await locs.count();
+                    if (count > 0) {
+                        const visible = [];
+                        for (let i = 0; i < count; i++) {
+                            if (await locs.nth(i).isVisible().catch(() => false)) {
+                                visible.push(locs.nth(i));
+                            }
+                        }
+                        if (visible.length > 0) {
+                            console.error(`Found ${visible.length} input(s) via: ${sel}`);
+                            return visible;
+                        }
+                    }
+                }
+                // Fallback: all visible text inputs
+                const all = page.locator("input[type='text']");
+                const count = await all.count();
+                const visible = [];
+                for (let i = 0; i < count; i++) {
+                    if (await all.nth(i).isVisible().catch(() => false)) {
+                        visible.push(all.nth(i));
+                    }
+                }
+                if (visible.length > 0) {
+                    console.error(`Found ${visible.length} input(s) via fallback`);
+                    return visible;
+                }
+                return [];
             }
 
-            if (dryRun) {
-                console.error(`[DRY RUN] Would submit: ${name}`);
-                submitted.push(name);
-                continue;
+            // If batch has fewer names than BATCH_SIZE, we only fill that many slots
+            const inputs = await getVisibleInputs();
+            if (inputs.length === 0) {
+                // Dump page for debugging
+                const html = await page.content();
+                const { mkdirSync, writeFileSync } = await import("fs");
+                mkdirSync(path.join(__dirname, "logs"), { recursive: true });
+                writeFileSync(path.join(__dirname, "logs", "debug-page.html"), html);
+                const err = `No domain inputs found in batch ${batchIdx + 1}. HTML dumped to logs/debug-page.html`;
+                console.error(err);
+                batch.forEach((n) => failed.push({ name: n, error: err }));
+                break;
             }
 
+            // Fill slots — use min(batch.length, inputs.length) to avoid overflow
+            const fillCount = Math.min(batch.length, inputs.length);
+            let batchOk = true;
+            for (let i = 0; i < fillCount; i++) {
+                try {
+                    await inputs[i].click();
+                    await inputs[i].clear();
+                    await inputs[i].fill(batch[i]);
+                    await sleep(200);
+                    console.error(`  Filled slot ${i + 1}: ${batch[i]}`);
+                } catch (err) {
+                    console.error(`  Failed to fill slot ${i + 1} (${batch[i]}): ${err.message}`);
+                    failed.push({ name: batch[i], error: err.message });
+                    batchOk = false;
+                }
+            }
+
+            if (!batchOk) continue;
+
+            // Click the Submit button (submits all filled slots at once)
             try {
-                // Find the input fresh each iteration (panel may re-render)
-                const inputLocator = await findDomainInput();
-                if (!inputLocator) throw new Error("Domain Name input disappeared");
-
-                await inputLocator.clear();
-                await inputLocator.fill(name);
-                await sleep(300);
-
-                // Click the orange "Submit" button in the panel
                 const submitBtn = page.locator("button:has-text('Submit'), input[type='submit'][value*='Submit' i]").first();
                 if (await submitBtn.count() > 0 && await submitBtn.isVisible()) {
                     await submitBtn.click();
+                    console.error(`  Clicked Submit`);
                 } else {
-                    await inputLocator.press("Enter");
+                    // Press Enter on last filled input
+                    await inputs[fillCount - 1].press("Enter");
+                    console.error(`  Pressed Enter to submit`);
                 }
 
-                await page.waitForTimeout(1500);
+                // Wait for form to process (dialog auto-accepted by listener above)
+                await page.waitForTimeout(3000);
 
-                // Check for error
-                const errorMsg = await page.locator(".error-message, .alert-danger, .submission-error").first().textContent().catch(() => "");
-                if (errorMsg && errorMsg.toLowerCase().includes("error")) {
-                    throw new Error(errorMsg.trim());
+                // Check for inline error
+                const errorMsg = await page.locator(".error-message, .alert-danger, .submission-error, [class*='error']").first().textContent().catch(() => "");
+                if (errorMsg && /error|invalid|failed/i.test(errorMsg)) {
+                    const errTrimmed = errorMsg.trim();
+                    console.error(`  Submission error: ${errTrimmed}`);
+                    batch.slice(0, fillCount).forEach((n) => failed.push({ name: n, error: errTrimmed }));
+                    continue;
                 }
 
-                console.error(`Submitted: ${name}`);
-                submitted.push(name);
-                existingSet.add(name.toLowerCase());
+                batch.slice(0, fillCount).forEach((n) => {
+                    submitted.push(n);
+                    existingSet.add(n.toLowerCase());
+                });
+                console.error(`  ✓ Batch submitted: ${batch.slice(0, fillCount).join(", ")}`);
 
-                await sleep(2000);
             } catch (err) {
-                console.error(`Failed: ${name} — ${err.message}`);
-                failed.push({ name, error: err.message });
+                console.error(`  Submit click failed: ${err.message}`);
+                batch.slice(0, fillCount).forEach((n) => failed.push({ name: n, error: err.message }));
             }
+
+            // Polite delay between batches
+            await sleep(3000);
         }
+
     } finally {
         await browser.close();
     }

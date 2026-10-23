@@ -111,8 +111,10 @@ The script uses Playwright with headless Chromium. It:
 1. Sets session cookies from `CONTEST_COOKIES`
 2. Navigates to the contest page (waits for full React render)
 3. Clicks "SUBMIT YOUR ENTRY" to open the side panel form
-4. Finds the "Domain Name *" input
-5. Submits each name with a ~2 second delay between entries
+4. Fills the 3 "Domain Name *" slots in the form
+5. Clicks Submit once per batch of 3 (atom.com limit: 3 entries per Submit click)
+6. Auto-dismisses any `alert()` dialogs atom.com shows
+7. Repeats until all 40 names are submitted (~14 batches)
 
 ```bash
 node scripts/atom/submit-entries.mjs \
@@ -133,6 +135,14 @@ node scripts/atom/run-contest.mjs "https://atom.com/contest/12345" --dry-run
 ```
 
 This runs steps 2-7 automatically. Output is logged to `scripts/atom/logs/`.
+
+### Names Cache (saves OpenAI + RapidAPI costs)
+
+After the first run for a contest, generated names are saved to `scripts/atom/logs/names-cache.json` keyed by contest ID. Every subsequent run for the same contest skips OpenAI and RapidAPI entirely and reuses the cached names.
+
+- Cache key = numeric contest ID from the URL (e.g. `34701`)
+- To force fresh name generation: delete that contest's entry from `names-cache.json`
+- Cache persists across GitHub Actions runs via the logs directory
 
 ---
 
@@ -210,3 +220,5 @@ To add new domains: edit `premium-listings.json` manually. There is no auto-sync
 | Brief scraping fails 403 | Cloudflare blocked IP — cookies may be expired; refresh `CONTEST_COOKIES` |
 | "Sorry, this contest is not accepting Premium" | Brief detection missed the "No" — script should have generated 40 AI names; check `premiumAllowed` in logs |
 | Form input not found | atom.com UI changed; update selectors in `submit-entries.mjs` |
+| Workflow timed out at submission | atom.com showed an alert dialog — old code hung; fixed in current version with `page.on('dialog')` handler |
+| 0 entries submitted | Check logs for "Dialog:" lines; if missing, the Submit button selector may need updating |
