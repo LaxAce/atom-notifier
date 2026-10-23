@@ -174,6 +174,8 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
         // Find the Submit button — try multiple strategies
         async function findSubmitButton() {
             const selectors = [
+                "button.entry_form_submit",
+                "[class*='entry_form_submit']",
                 "button[type='submit']",
                 "input[type='submit']",
                 "button:has-text('Submit')",
