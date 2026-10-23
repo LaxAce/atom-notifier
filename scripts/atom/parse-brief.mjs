@@ -14,6 +14,7 @@ import OpenAI from "openai";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
+import { chromium } from "playwright";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,19 +32,41 @@ if (existsSync(envFile)) {
 // ── Scrape atom.com contest page ──────────────────────────────────────────────
 
 export async function scrapeContestPage(url) {
-    const cookies = process.env.CONTEST_COOKIES;
-    if (!cookies) throw new Error("CONTEST_COOKIES env var is required");
+    const cookieStr = process.env.CONTEST_COOKIES;
+    if (!cookieStr) throw new Error("CONTEST_COOKIES env var is required");
 
-    const response = await axios.get(url, {
-        headers: {
-            Cookie: cookies,
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-        timeout: 15000,
-    });
+    // Use Playwright to bypass Cloudflare bot detection on individual contest pages
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const context = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        });
 
-    return response.data;
+        // Parse and set cookies from the cookie string
+        const cookiePairs = cookieStr.split(";").map((c) => c.trim()).filter(Boolean);
+        const cookies = cookiePairs.map((pair) => {
+            const eqIdx = pair.indexOf("=");
+            return {
+                name: pair.slice(0, eqIdx).trim(),
+                value: pair.slice(eqIdx + 1).trim(),
+                domain: ".atom.com",
+                path: "/",
+            };
+        });
+        await context.addCookies(cookies);
+
+        const page = await context.newPage();
+        const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+        if (!response || !response.ok()) {
+            throw new Error(`HTTP ${response?.status()} fetching contest page`);
+        }
+
+        const html = await page.content();
+        return html;
+    } finally {
+        await browser.close();
+    }
 }
 
 // ── Parse HTML into structured brief ─────────────────────────────────────────
