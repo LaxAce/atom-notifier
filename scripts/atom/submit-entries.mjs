@@ -237,14 +237,29 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 }
                 console.error(`Filled: ${name}`);
 
-                // Find and click Submit
-                const submitBtn = await findSubmitButton();
-                if (submitBtn) {
-                    await submitBtn.click();
-                    console.error(`Clicked Submit for: ${name}`);
-                } else {
-                    await input.press("Enter");
-                    console.error(`Pressed Enter for: ${name} (no Submit button found)`);
+                // Click the submit button — try force-click first (bypasses visibility checks
+                // that fail when hidden-xs/React re-renders make the button "not visible"),
+                // then fall back to JS evaluate click, then Enter on the input.
+                let submitClicked = false;
+                try {
+                    await page.locator(".entry_form_submit").first().click({ force: true, timeout: 3000 });
+                    console.error(`Clicked Submit for: ${name} (force .entry_form_submit)`);
+                    submitClicked = true;
+                } catch {
+                    // force-click failed — try JS evaluate as last resort
+                    submitClicked = await page.evaluate(() => {
+                        const btn = document.querySelector(".entry_form_submit") ||
+                                    document.querySelector("button[type='submit']") ||
+                                    document.querySelector("form .btn-primary");
+                        if (btn) { btn.click(); return true; }
+                        return false;
+                    });
+                    if (submitClicked) {
+                        console.error(`Clicked Submit for: ${name} (JS evaluate)`);
+                    } else {
+                        await input.press("Enter");
+                        console.error(`Pressed Enter for: ${name} (no submit button found)`);
+                    }
                 }
 
                 // Wait for form to process
