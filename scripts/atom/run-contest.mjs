@@ -145,8 +145,9 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
 
     // ── Finish ────────────────────────────────────────────────────────────────
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const submitStep = log.steps.submit;
     log.result = {
-        success: submissionResult.submitted.length > 0 || dryRun,
+        success: (submitStep?.success !== false) && (submissionResult.submitted.length > 0 || dryRun),
         submitted: submissionResult.submitted.length,
         failed: submissionResult.failed.length,
         elapsed: `${elapsed}s`,

@@ -60,36 +60,37 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
         await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
         await page.waitForTimeout(2000);
 
-        // Try to activate the submission tab (atom.com uses tab-based UI)
-        const tabSelectors = [
-            "a[href*='#tab-2']",
-            "a[href*='submit']",
-            "[data-tab='submit']",
-            "a:has-text('Submit Entry')",
-            "a:has-text('Submit Name')",
-            "li.tab a:nth-of-type(2)",
+        // atom.com hides the entry form behind a "SUBMIT YOUR ENTRY" button.
+        // Click it to open the submission form/modal, then find the input inside.
+        const submitBtnSelectors = [
+            "a:has-text('SUBMIT YOUR ENTRY')",
+            "a:has-text('Submit Your Entry')",
+            "button:has-text('SUBMIT YOUR ENTRY')",
+            "button:has-text('Submit Your Entry')",
+            ".submit-entry-btn",
+            "[href*='submit']",
         ];
-        for (const sel of tabSelectors) {
+        for (const sel of submitBtnSelectors) {
             try {
-                const tab = page.locator(sel).first();
-                if (await tab.count() > 0 && await tab.isVisible()) {
-                    await tab.click();
-                    await page.waitForTimeout(1000);
-                    console.error(`Clicked submission tab: ${sel}`);
+                const btn = page.locator(sel).first();
+                if (await btn.count() > 0 && await btn.isVisible()) {
+                    await btn.click();
+                    console.error(`Clicked "Submit Your Entry" button: ${sel}`);
+                    await page.waitForTimeout(2000);
                     break;
                 }
-            } catch { /* ignore tab click errors */ }
+            } catch { /* ignore */ }
         }
 
         // Log all visible inputs for debugging
-        const allInputs = await page.locator("input[type='text'], input:not([type])").all();
-        console.error(`Found ${allInputs.length} text input(s) on page`);
+        const allInputs = await page.locator("input[type='text'], input:not([type]), textarea").all();
+        console.error(`Found ${allInputs.length} text input(s) on page after opening form`);
         for (const inp of allInputs.slice(0, 10)) {
             const placeholder = await inp.getAttribute("placeholder").catch(() => "");
             const name = await inp.getAttribute("name").catch(() => "");
             const id = await inp.getAttribute("id").catch(() => "");
             const cls = await inp.getAttribute("class").catch(() => "");
-            console.error(`  input: name="${name}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 60)}"`);
+            console.error(`  input: name="${name}" id="${id}" placeholder="${placeholder}" class="${cls?.slice(0, 80)}"`);
         }
 
         const submissionSelectors = [
@@ -103,6 +104,7 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
             ".submission-input input",
             ".submit-entry input",
             ".entry-form input[type='text']",
+            ".modal input[type='text']",
             "#entry-name",
             "#name_suggestion",
             "input[name='entry']",
@@ -115,11 +117,15 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
 
         let inputLocator = null;
         for (const sel of submissionSelectors) {
-            const count = await page.locator(sel).count();
+            const loc = page.locator(sel);
+            const count = await loc.count();
             if (count > 0) {
-                inputLocator = page.locator(sel).first();
-                console.error(`Found submission input: ${sel}`);
-                break;
+                const visible = await loc.first().isVisible().catch(() => false);
+                if (visible) {
+                    inputLocator = loc.first();
+                    console.error(`Found submission input: ${sel}`);
+                    break;
+                }
             }
         }
 
