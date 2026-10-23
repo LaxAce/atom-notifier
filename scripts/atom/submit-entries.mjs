@@ -134,7 +134,21 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
 
         await dumpPageState(page, "after opening entry panel");
 
+        // Detect expired session: login modal or sign-in link appeared
+        const loginSignals = await page.locator(
+            "[class*='login']:visible, [class*='signin']:visible, " +
+            "a:has-text('Sign In'):visible, a:has-text('Log In'):visible, " +
+            "button:has-text('Sign In'):visible, button:has-text('Log In'):visible, " +
+            "input[type='email']:visible, input[type='password']:visible"
+        ).count();
+        if (loginSignals > 0) {
+            throw new Error(
+                "Session expired: login prompt detected. CONTEST_COOKIES needs to be refreshed in GitHub Secrets."
+            );
+        }
+
         // Find the domain name input — log all candidates
+        // NOTE: generic input[type='text'] intentionally omitted to avoid filling login/search boxes
         async function findDomainInput() {
             const selectors = [
                 "input[name*='domain' i]",
@@ -142,7 +156,10 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 "input[placeholder*='name' i]",
                 "input[name*='entry' i]",
                 "input[name*='suggestion' i]",
-                "input[type='text']",
+                "input[placeholder*='brand' i]",
+                "input[placeholder*='word' i]",
+                "input[placeholder*='idea' i]",
+                "input[placeholder*='suggest' i]",
             ];
             for (const sel of selectors) {
                 const loc = page.locator(sel).first();
@@ -236,6 +253,14 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 const errEl = errEls.join(" ").trim();
                 if (errEl && /error|invalid|failed|not accept/i.test(errEl)) {
                     throw new Error(errEl.slice(0, 200));
+                }
+
+                // Positive confirmation: after a real submission atom.com clears the input field.
+                // If the value is still our name, the form didn't process — count as failed.
+                const inputAfter = await findDomainInput();
+                const valAfter = inputAfter ? await inputAfter.inputValue().catch(() => name) : "";
+                if (valAfter === name) {
+                    throw new Error(`Input not cleared after submit — atom.com may not have accepted the entry`);
                 }
 
                 submitted.push(name);
