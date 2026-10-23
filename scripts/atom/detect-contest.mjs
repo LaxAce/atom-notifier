@@ -1,9 +1,10 @@
 /**
  * Detect new contests on atom.com.
- * Compares current latest contest ID against state stored in GitHub Gist.
+ * Compares current latest contest ID against lastParticipatedId in GitHub Gist.
  * Writes CONTEST_URL and IS_NEW to GitHub Actions output.
  *
- * Shares Gist state with atom-notifier to avoid duplicate detections.
+ * Uses lastParticipatedId (separate from the notifier's lastContestId) so the
+ * notifier's 3-min detection cycle doesn't prevent this script from participating.
  */
 
 import axios from "axios";
@@ -94,10 +95,12 @@ async function detectContest() {
     console.error(`Latest contest: ${contestId} — ${contestTitle}`);
 
     const state = await readStateFromGist();
-    const lastSeenId = state.lastContestId;
+    // Use a separate field from the notifier's lastContestId so they don't conflict.
+    // The notifier writes lastContestId; we track lastParticipatedId independently.
+    const lastParticipatedId = state.lastParticipatedId;
 
-    if (contestId === lastSeenId) {
-        console.error("No new contest.");
+    if (contestId === lastParticipatedId) {
+        console.error("No new contest (already participated).");
         writeOutput("IS_NEW", "false");
         return;
     }
@@ -105,8 +108,7 @@ async function detectContest() {
     console.error(`NEW contest detected: ${contestId} — ${contestTitle}`);
     console.error(`URL: ${fullContestUrl}`);
 
-    // Update state so atom-notifier and this script don't both process it
-    await writeStateToGist({ ...state, lastContestId: contestId });
+    await writeStateToGist({ ...state, lastParticipatedId: contestId });
 
     writeOutput("IS_NEW", "true");
     writeOutput("CONTEST_URL", fullContestUrl);
