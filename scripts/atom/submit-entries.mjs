@@ -196,6 +196,7 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
             let batchOk = true;
             for (let i = 0; i < fillCount; i++) {
                 try {
+                    await inputs[i].click();
                     await inputs[i].clear();
                     await inputs[i].fill(batch[i]);
                     await sleep(200);
