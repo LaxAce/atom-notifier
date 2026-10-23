@@ -1,0 +1,88 @@
+name: Atom Contest Automation
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # every 5 minutes — checks for new contests
+  workflow_dispatch:
+    inputs:
+      contest_url:
+        description: "Contest URL to enter manually (skip auto-detection)"
+        required: false
+      dry_run:
+        description: "Dry run (generate names but don't submit)"
+        type: boolean
+        default: false
+
+jobs:
+  participate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Get code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: scripts/atom
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: scripts/atom
+        run: npx playwright install chromium --with-deps
+
+      - name: Check for new contest (auto-detect)
+        if: ${{ !inputs.contest_url }}
+        id: detect
+        working-directory: scripts/atom
+        env:
+          CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
+          CONTEST_URL: ${{ secrets.CONTEST_URL }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_NAME: ${{ secrets.GIST_NAME }}
+        run: node detect-contest.mjs
+
+      - name: Run contest (manual URL)
+        if: ${{ inputs.contest_url }}
+        working-directory: scripts/atom
+        env:
+          PENAI_API_KEY: ${{ secrets.PENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
+          CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
+          node run-contest.mjs "${{ inputs.contest_url }}" $DRY_RUN_FLAG
+
+      - name: Run contest (auto-detected)
+        if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
+        working-directory: scripts/atom
+        env:
+          PENAI_API_KEY: ${{ secrets.PENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
+          CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
+        run: node run-contest.mjs "${{ steps.detect.outputs.CONTEST_URL }}"
+
+      - name: Skip — no new contest
+        if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW != 'true' }}
+        run: echo "No new contest found. Skipping."
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contest-logs-${{ github.run_id }}
+          path: scripts/atom/logs/
+          retention-days: 30
+          if-no-files-found: ignore
