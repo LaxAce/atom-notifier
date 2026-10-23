@@ -1,0 +1,55 @@
+name: Fetch Premium Listings
+
+on:
+  workflow_dispatch: # run manually once (or whenever you want to refresh)
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: scripts/atom
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: scripts/atom
+        run: npx playwright install chromium --with-deps
+
+      - name: Fetch premium listings from atom.com
+        working-directory: scripts/atom
+        env:
+          CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
+        run: node fetch-premium-listings.mjs --debug
+
+      - name: Commit updated listings
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/atom/premium-listings.json
+          if git diff --staged --quiet; then
+            echo "No changes to premium listings"
+          else
+            git commit -m "Update premium listings from atom.com [skip ci]"
+            git push
+          fi
+
+      - name: Upload debug logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-listings-logs
+          path: scripts/atom/logs/
+          retention-days: 7
+          if-no-files-found: ignore

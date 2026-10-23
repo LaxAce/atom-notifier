@@ -3,3 +3,6 @@
 .env
 lastContest.json
 mostRecentActivity.json
+scripts/atom/.env.atom
+scripts/atom/node_modules/
+scripts/atom/logs/
