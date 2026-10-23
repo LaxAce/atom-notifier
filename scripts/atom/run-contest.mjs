@@ -58,10 +58,12 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
             industry: briefData.industry,
             compressedBriefLength: briefData.compressedBrief.length,
             suggestedStyle: briefData.suggestedStyle,
+            premiumAllowed: briefData.premiumAllowed,
         };
         console.error(`  Title: ${briefData.title}`);
         console.error(`  Type: ${briefData.contestType}`);
         console.error(`  Industry: ${briefData.industry}`);
+        console.error(`  Premium domains allowed: ${briefData.premiumAllowed}`);
         console.error(`  Suggested style: ${briefData.suggestedStyle}`);
         console.error(`  Compressed brief (${briefData.compressedBrief.length} chars): ${briefData.compressedBrief.slice(0, 100)}...`);
     } catch (err) {
@@ -71,7 +73,9 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
     }
 
     // ── Step 2: Generate AI names ─────────────────────────────────────────────
-    console.error(`\nStep 2/5: Generating ${NAMES_FROM_AI} names via OpenAI...`);
+    // When premium domains aren't allowed, generate all 40 as AI names
+    const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : ENTRIES_PER_CONTEST;
+    console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? "" : " (premium not allowed — 40 AI names)"}...`);
     let aiNames = [];
     try {
         aiNames = await generateNames({
@@ -79,7 +83,7 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
             keywords: briefData.keywords,
             style: briefData.suggestedStyle,
             extension: briefData.extension || "com",
-            count: NAMES_FROM_AI,
+            count: aiCount,
             requireDomains,
             temperature: 0.7,
         });
@@ -93,23 +97,25 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
     }
 
     // ── Step 3: Select premium listings ──────────────────────────────────────
-    console.error(`\nStep 3/5: Selecting ${NAMES_FROM_PREMIUM} premium listings...`);
     let premiumNames = [];
-    try {
-        premiumNames = selectPremiumNames(
-            briefData.compressedBrief,
-            briefData.industry,
-            NAMES_FROM_PREMIUM
-        );
-
-        // Premium domains are always real listings — generalist names serve as built-in fallback.
-        // Never substitute AI names here.
-        const industryNote = briefData.industry || "no industry detected — using generalist names";
-        log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
-        console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
-    } catch (err) {
-        log.steps.selectPremium = { success: false, error: err.message };
-        console.error(`  Warning: premium selection failed — ${err.message}`);
+    if (!briefData.premiumAllowed) {
+        console.error(`\nStep 3/5: Skipping premium listings (contest does not accept premium domains)`);
+        log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "contest does not accept premium domains" };
+    } else {
+        console.error(`\nStep 3/5: Selecting ${NAMES_FROM_PREMIUM} premium listings...`);
+        try {
+            premiumNames = selectPremiumNames(
+                briefData.compressedBrief,
+                briefData.industry,
+                NAMES_FROM_PREMIUM
+            );
+            const industryNote = briefData.industry || "no industry detected — using generalist names";
+            log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
+            console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
+        } catch (err) {
+            log.steps.selectPremium = { success: false, error: err.message };
+            console.error(`  Warning: premium selection failed — ${err.message}`);
+        }
     }
 
     // ── Step 4: Combine all 40 entries ────────────────────────────────────────
