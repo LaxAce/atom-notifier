@@ -186,13 +186,10 @@ export async function generateNames({
         if (i + 10 < allNames.length && available.length < count) await sleep(500);
     }
 
-    // If we couldn't get enough available, fill with remaining names
+    // If we couldn't get enough available names from RapidAPI, log a warning but do NOT pad
+    // with unchecked names — atom.com will reject unavailable domains and hurt our score.
     if (available.length < count) {
-        const availableSet = new Set(available);
-        for (const name of allNames) {
-            if (available.length >= count) break;
-            if (!availableSet.has(name)) available.push(name);
-        }
+        console.error(`Warning: only ${available.length}/${count} names passed domain check — submitting what's available`);
     }
 
     return available.slice(0, count);

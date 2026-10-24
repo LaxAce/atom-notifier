@@ -258,17 +258,37 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 await input.press("Tab");
                 console.error(`Triggered blur for availability check: ${name}`);
 
-                // Wait for the availability XHR to complete — atom.com shows a green tick
-                // with text like "Ok to submit. <name>.com is available."
-                // We wait up to 5s; if the selector never appears we fall through and try Submit anyway.
+                // Wait for the availability XHR to complete — atom.com shows:
+                //   ✓ "Ok to submit. <name>.com is available."  → proceed
+                //   ✗ "not available" / "not accepting"          → skip this entry
+                // We wait up to 5s; timeout means we can't confirm either way → submit anyway.
                 try {
                     await page.waitForFunction(
                         () => {
                             const body = document.body.innerText.toLowerCase();
-                            return body.includes("ok to submit") || body.includes("is available");
+                            return (
+                                body.includes("ok to submit") ||
+                                body.includes("is available") ||
+                                body.includes("not available") ||
+                                body.includes("not accepting") ||
+                                body.includes("already taken") ||
+                                body.includes("domain is not")
+                            );
                         },
                         { timeout: 5000 }
                     );
+                    // Check if the result was negative
+                    const bodyText = await page.evaluate(() => document.body.innerText.toLowerCase());
+                    const isUnavailable =
+                        bodyText.includes("not available") ||
+                        bodyText.includes("not accepting") ||
+                        bodyText.includes("already taken") ||
+                        bodyText.includes("domain is not");
+                    if (isUnavailable) {
+                        console.error(`✗ Skipped (domain unavailable on atom.com): ${name}`);
+                        failed.push({ name, error: "Domain not available per atom.com availability check" });
+                        continue;
+                    }
                     console.error(`Availability confirmed: ${name}`);
                 } catch {
                     console.error(`Availability check timed out — submitting anyway: ${name}`);
