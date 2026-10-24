@@ -56,11 +56,20 @@ async function writeStateToGist(state) {
     if (!GIST_ID || !GIST_TOKEN) return;
 
     const fileName = GIST_NAME || "state.json";
-    await axios.patch(
-        `https://api.github.com/gists/${GIST_ID}`,
-        { files: { [fileName]: { content: JSON.stringify(state, null, 2) } } },
-        { headers: { Authorization: `token ${GIST_TOKEN}`, "User-Agent": "atom-contest-bot" } }
-    );
+    try {
+        await axios.patch(
+            `https://api.github.com/gists/${GIST_ID}`,
+            { files: { [fileName]: { content: JSON.stringify(state, null, 2) } } },
+            { headers: { Authorization: `token ${GIST_TOKEN}`, "User-Agent": "atom-contest-bot" } }
+        );
+    } catch (err) {
+        const status = err?.response?.status;
+        if (status === 401) {
+            console.error("ERROR: GIST_TOKEN is expired or invalid (401 Unauthorized). Renew it in GitHub Actions secrets.");
+        } else {
+            console.error(`Warning: failed to write state to Gist (${status ?? err.message}). State NOT saved — contest may re-detect on next run.`);
+        }
+    }
 }
 
 function parseCookies(cookieStr) {
