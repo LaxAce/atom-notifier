@@ -225,7 +225,7 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 await input.click();
                 await input.clear();
                 await input.fill(name);
-                await sleep(500);
+                await sleep(300);
 
                 // Verify fill worked
                 const val = await input.inputValue().catch(() => "");
@@ -237,14 +237,45 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 }
                 console.error(`Filled: ${name}`);
 
-                // Find and click Submit
-                const submitBtn = await findSubmitButton();
-                if (submitBtn) {
-                    await submitBtn.click();
-                    console.error(`Clicked Submit for: ${name}`);
-                } else {
-                    await input.press("Enter");
-                    console.error(`Pressed Enter for: ${name} (no Submit button found)`);
+                // Trigger blur to fire the domain availability XHR (contests.php?action=entry_available).
+                // atom.com validates on blur — without this the Submit button does nothing.
+                await input.press("Tab");
+                console.error(`Triggered blur for availability check: ${name}`);
+
+                // Wait for the availability XHR to complete and show the green "Ok to submit" tick.
+                // We wait up to 5s; if the selector never appears we fall through and try Submit anyway.
+                try {
+                    await page.waitForSelector(
+                        "text='Ok to submit'",
+                        { state: "visible", timeout: 5000 }
+                    );
+                    console.error(`Availability confirmed: ${name}`);
+                } catch {
+                    console.error(`Availability check timed out — submitting anyway: ${name}`);
+                }
+
+                // Click the submit button via force-click (bypasses hidden-xs/React visibility issues),
+                // falling back to JS evaluate click.
+                let submitClicked = false;
+                try {
+                    await page.locator(".entry_form_submit").first().click({ force: true, timeout: 3000 });
+                    console.error(`Clicked Submit for: ${name} (force .entry_form_submit)`);
+                    submitClicked = true;
+                } catch {
+                    // force-click failed — try JS evaluate as last resort
+                    submitClicked = await page.evaluate(() => {
+                        const btn = document.querySelector(".entry_form_submit") ||
+                                    document.querySelector("button[type='submit']") ||
+                                    document.querySelector("form .btn-primary");
+                        if (btn) { btn.click(); return true; }
+                        return false;
+                    });
+                    if (submitClicked) {
+                        console.error(`Clicked Submit for: ${name} (JS evaluate)`);
+                    } else {
+                        await input.press("Enter");
+                        console.error(`Pressed Enter for: ${name} (no submit button found)`);
+                    }
                 }
 
                 // Wait for form to process
