@@ -98,7 +98,7 @@ export async function generateNames({
     keywords = "",
     style = "auto",
     extension = "com",
-    count = 35,
+    count = 20,
     requireDomains = true,
     temperature = 0.7,
 }) {
@@ -112,25 +112,37 @@ export async function generateNames({
     const kw = sanitize(keywords).slice(0, 180);
 
     const batchSize = 20;
-    const totalNeeded = requireDomains ? count * 3 : count; // generate 3x to have enough after domain filtering
-    const uniqueNames = new Set();
+    const MAX_ROUNDS = 20; // safety cap — in practice 1-3 rounds always fills the quota
+    const triedNames = new Set(); // tracks all names ever generated (avoids duplicates across rounds)
+    const available = [];
 
-    let attempts = 0;
-    const maxAttempts = Math.ceil(totalNeeded / batchSize) + 2;
+    // Retry loop: generate → check availability → repeat until quota filled or MAX_ROUNDS hit.
+    // Each round generates a fresh batch of names (excluding ones already tried), checks domain
+    // availability via RapidAPI, and appends newly confirmed-available names to the list.
+    for (let round = 1; round <= MAX_ROUNDS && available.length < count; round++) {
+        const needed = count - available.length;
+        const generateTarget = requireDomains ? needed * 3 : needed; // 3x because ~1/3 pass domain check
 
-    while (uniqueNames.size < totalNeeded && attempts < maxAttempts) {
-        attempts++;
-        try {
-            const res = await openai.beta.chat.completions.parse({
-                model,
-                messages: [
-                    {
-                        role: "system",
-                        content: `Generate ${batchSize} names, do not add the extensions to the end of the names, names should only contain alphabet, names should be at least 3 letters, names should not exceed ${maxLength}, 20% of the generated names should not be based on the 'Product description,' 'Keywords,' or 'Naming style. Every name in the array should be unique. Most importantly, ensure that the names are easy to pronounce and spell, and that they don't end with double letters like 'xx', 'oo', 'ee', etc. names should not end with 'q'. ${kw ? `60% of the names should be based on the 'Keywords'` : ""}`,
-                    },
-                    {
-                        role: "user",
-                        content: `Generate ${batchSize} company names with the following criteria:
+        console.error(`Round ${round}/${MAX_ROUNDS}: need ${needed} more available names (have ${available.length}/${count})...`);
+
+        // ── Generate a batch of new names via OpenAI ────────────────────────
+        const newNames = [];
+        let openaiAttempts = 0;
+        const maxOpenaiAttempts = Math.ceil(generateTarget / batchSize) + 2;
+
+        while (newNames.length < generateTarget && openaiAttempts < maxOpenaiAttempts) {
+            openaiAttempts++;
+            try {
+                const res = await openai.beta.chat.completions.parse({
+                    model,
+                    messages: [
+                        {
+                            role: "system",
+                            content: `Generate ${batchSize} names, do not add the extensions to the end of the names, names should only contain alphabet, names should be at least 3 letters, names should not exceed ${maxLength}, 20% of the generated names should not be based on the 'Product description,' 'Keywords,' or 'Naming style. Every name in the array should be unique. Most importantly, ensure that the names are easy to pronounce and spell, and that they don't end with double letters like 'xx', 'oo', 'ee', etc. names should not end with 'q'. ${kw ? `60% of the names should be based on the 'Keywords'` : ""}`,
+                        },
+                        {
+                            role: "user",
+                            content: `Generate ${batchSize} company names with the following criteria:
 - Product description: ${desc}
 - Keywords: ${kw || "None"}
 - Name length: Ensure name doesn't exceed 5 to ${maxLength} characters
@@ -140,59 +152,66 @@ export async function generateNames({
 - Syllables: Ensure all names have maximum of ${maxLength > 12 ? 4 : 3} syllables.
 - Domain availability: ${requireDomains ? `Ensure the names are likely available as domains in the following extensions: (${extension}). Utilize common prefixes and suffixes to increase domain availability.` : "Do not consider domain extensions."}
 - Pronunciation and spelling: Ensure all names are easy to pronounce and spell.`,
-                    },
-                ],
-                response_format: {
-                    type: "json_schema",
-                    json_schema: {
-                        name: "nameListResponse",
-                        schema: {
-                            type: "object",
-                            properties: { names: { type: "array", items: { type: "string" } } },
-                            required: ["names"],
+                        },
+                    ],
+                    response_format: {
+                        type: "json_schema",
+                        json_schema: {
+                            name: "nameListResponse",
+                            schema: {
+                                type: "object",
+                                properties: { names: { type: "array", items: { type: "string" } } },
+                                required: ["names"],
+                            },
                         },
                     },
-                },
-                temperature,
-                max_tokens: 500,
-                frequency_penalty: 0.5,
-                presence_penalty: 0.5,
-            });
+                    temperature,
+                    max_tokens: 500,
+                    frequency_penalty: 0.5,
+                    presence_penalty: 0.5,
+                });
 
-            const parsed = JSON.parse(res.choices[0].message.content || "{}");
-            const names = parsed.names || [];
-            names.filter(validateName).forEach((n) => uniqueNames.add(n));
-        } catch (err) {
-            console.error(`OpenAI batch ${attempts} error:`, err.message);
-            await sleep(2000);
+                const parsed = JSON.parse(res.choices[0].message.content || "{}");
+                for (const n of (parsed.names || [])) {
+                    if (validateName(n) && !triedNames.has(n.toLowerCase())) {
+                        triedNames.add(n.toLowerCase());
+                        newNames.push(n);
+                    }
+                }
+            } catch (err) {
+                console.error(`OpenAI attempt ${openaiAttempts} error:`, err.message);
+                await sleep(2000);
+            }
         }
 
-        if (uniqueNames.size >= totalNeeded) break;
+        if (!requireDomains) {
+            // No domain check needed — take what we need and stop
+            available.push(...newNames.slice(0, needed));
+            break;
+        }
+
+        // ── Check domain availability for this round's names ────────────────
+        console.error(`  Checking ${newNames.length} names on .${extension}...`);
+        let roundAvailable = 0;
+        for (let i = 0; i < newNames.length && available.length < count; i += 10) {
+            const batch = newNames.slice(i, i + 10);
+            const results = await Promise.all(batch.map((n) => checkDomain(n, extension)));
+            const found = results.filter(Boolean);
+            available.push(...found);
+            roundAvailable += found.length;
+            if (i + 10 < newNames.length && available.length < count) await sleep(500);
+        }
+
+        console.error(`  Round ${round} found ${roundAvailable} available → total ${available.length}/${count}`);
     }
 
-    const allNames = Array.from(uniqueNames);
-
-    if (!requireDomains) {
-        return allNames.slice(0, count);
-    }
-
-    // Check domain availability — parallel but rate-limited
-    console.error(`Checking domain availability for ${allNames.length} names on .${extension}...`);
-    const available = [];
-    for (let i = 0; i < allNames.length && available.length < count; i += 10) {
-        const batch = allNames.slice(i, i + 10);
-        const results = await Promise.all(batch.map((n) => checkDomain(n, extension)));
-        available.push(...results.filter(Boolean));
-        if (i + 10 < allNames.length && available.length < count) await sleep(500);
-    }
-
-    // If we couldn't get enough available, fill with remaining names
     if (available.length < count) {
-        const availableSet = new Set(available);
-        for (const name of allNames) {
-            if (available.length >= count) break;
-            if (!availableSet.has(name)) available.push(name);
-        }
+        throw new Error(
+            `Could not fill domain quota after ${MAX_ROUNDS} rounds: ` +
+            `got ${available.length}/${count} available names on .${extension}. ` +
+            `Check that RAPIDAPI_KEY is valid and the domain checker endpoint is reachable. ` +
+            `To skip domain checking, pass requireDomains=false or use --no-domains.`
+        );
     }
 
     return available.slice(0, count);

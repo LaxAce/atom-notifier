@@ -1,7 +1,7 @@
 # Atom Contest Automation Skill
 
 ## Purpose
-Participate in naming contests on atom.com autonomously. Read briefs, generate names via OpenAI, mix in premium listings when allowed, and submit 40 entries per contest.
+Participate in naming contests on atom.com autonomously. Read briefs, generate names via OpenAI, mix in premium listings when allowed, and submit 25 entries per contest.
 
 ## When to Use
 Invoke with `/atom-contest` when:
@@ -67,13 +67,24 @@ Map what the contest brief asks for → AiNameIt style:
 ## STEP 5 — Generate Names
 
 **If premium domains ARE allowed:**
-- Generate **35 AI names**
+- Generate **20 AI names** (with domain availability retry loop)
 - Pick **5 premium listings** from `premium-listings.json`
-- Submit **40 total** (5 premium first, then 35 AI)
+- Submit **25 total** (5 premium first, then 20 AI)
 
 **If premium domains are NOT allowed** (brief says "Premium Domains Allowed: No"):
-- Generate **40 AI names**
+- Generate **25 AI names**
 - Skip premium step entirely
+
+### Domain Availability Retry Loop
+
+`generate-names.mjs` keeps retrying until the **full quota is confirmed available** (up to 20 rounds):
+1. Calculate how many more names are still needed (`count - available.length`)
+2. Ask OpenAI for `needed × 3` fresh names (never repeating already-tried names)
+3. Check each via RapidAPI for the contest's extension (.com, .io, etc.)
+4. Add newly confirmed-available names to the list
+5. Repeat from step 1 until all 20/25 slots are filled
+
+**Submission never starts until the full quota is domain-confirmed.** If 20 rounds are exhausted without filling the quota, the script throws an error (check `RAPIDAPI_KEY` or use `--no-domains`). In practice 1–3 rounds is enough.
 
 ```bash
 cd /home/user/atom-notifier
@@ -82,7 +93,7 @@ node scripts/atom/generate-names.mjs \
   --keywords "keyword1,keyword2" \
   --style "auto" \
   --extension "com" \
-  --count 35
+  --count 20
 ```
 
 ---
@@ -91,7 +102,7 @@ node scripts/atom/generate-names.mjs \
 
 Premium listings are curated in `scripts/atom/premium-listings.json` (43 names, all .com Instant Transfer). The script scores by industry match and brief keyword overlap. Generalist names serve as fallback when no specific industry match exists.
 
-**IMPORTANT: Never substitute AI-generated names in premium slots.** If the contest doesn't allow premium domains, generate 40 AI names instead.
+**IMPORTANT: Never substitute AI-generated names in premium slots.** If the contest doesn't allow premium domains, generate 25 AI names instead.
 
 ```bash
 node scripts/atom/select-premium.mjs \
@@ -101,7 +112,7 @@ node scripts/atom/select-premium.mjs \
 
 ---
 
-## STEP 7 — Submit 40 Entries
+## STEP 7 — Submit 25 Entries
 
 **Prerequisites:**
 - `CONTEST_COOKIES` env var (GitHub secret) with valid atom.com session cookies
@@ -111,10 +122,11 @@ The script uses Playwright with headless Chromium. It:
 1. Sets session cookies from `CONTEST_COOKIES`
 2. Navigates to the contest page (waits for full React render)
 3. Clicks "SUBMIT YOUR ENTRY" to open the side panel form
-4. Fills the 3 "Domain Name *" slots in the form
-5. Clicks Submit once per batch of 3 (atom.com limit: 3 entries per Submit click)
-6. Auto-dismisses any `alert()` dialogs atom.com shows
-7. Repeats until all 40 names are submitted (~14 batches)
+4. Fills the Domain Name input and presses Tab to trigger atom.com's availability XHR
+5. **Skips** any name atom.com reports as unavailable ("not available", "already taken", etc.)
+6. Clicks Submit for confirmed-available names
+7. Re-opens the entry panel after each submission (atom.com closes it on success)
+8. Repeats until all 25 names are submitted or skipped
 
 ```bash
 node scripts/atom/submit-entries.mjs \
@@ -124,7 +136,7 @@ node scripts/atom/submit-entries.mjs \
 
 ---
 
-## STEP 8 — Full Orchestration
+## STEP 8 — Full Orchestration (25 entries)
 
 Run everything in one command:
 
@@ -218,7 +230,7 @@ To add new domains: edit `premium-listings.json` manually. There is no auto-sync
 | OpenAI rate limit | Add delay between batches; already handled in script |
 | Contest already entered | Script checks for duplicate submissions before submitting |
 | Brief scraping fails 403 | Cloudflare blocked IP — cookies may be expired; refresh `CONTEST_COOKIES` |
-| "Sorry, this contest is not accepting Premium" | Brief detection missed the "No" — script should have generated 40 AI names; check `premiumAllowed` in logs |
+| "Sorry, this contest is not accepting Premium" | Brief detection missed the "No" — script should have generated 25 AI names; check `premiumAllowed` in logs |
 | Form input not found | atom.com UI changed; update selectors in `submit-entries.mjs` |
 | Workflow timed out at submission | atom.com showed an alert dialog — old code hung; fixed in current version with `page.on('dialog')` handler |
 | 0 entries submitted | Check logs for "Dialog:" lines; if missing, the Submit button selector may need updating |

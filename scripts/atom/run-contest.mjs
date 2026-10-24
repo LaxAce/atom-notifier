@@ -22,9 +22,10 @@ import { submitEntries } from "./submit-entries.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const ENTRIES_PER_CONTEST = 40;
-const NAMES_FROM_AI = 35;
+const ENTRIES_PER_CONTEST = 25;
+const NAMES_FROM_AI = 20;       // when premium allowed: 20 AI + 5 premium = 25 total
 const NAMES_FROM_PREMIUM = 5;
+const NAMES_FROM_AI_NO_PREMIUM = 25; // when premium not allowed: 25 AI names
 
 // ── Names cache (per contest URL) ────────────────────────────────────────────
 // Saves OpenAI + RapidAPI calls on re-runs for the same contest.
@@ -140,8 +141,8 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
         // ── Step 2: Generate AI names ─────────────────────────────────────────
-        const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : ENTRIES_PER_CONTEST;
-        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? "" : " (premium not allowed — 40 AI names)"}...`);
+        const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM;
+        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? " (20 AI + 5 premium)" : " (25 AI, premium not allowed)"}...`);
         try {
             aiNames = await generateNames({
                 description: briefData.compressedBrief,
