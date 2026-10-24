@@ -112,7 +112,7 @@ export async function generateNames({
     const kw = sanitize(keywords).slice(0, 180);
 
     const batchSize = 20;
-    const MAX_ROUNDS = 10; // max retry rounds before giving up
+    const MAX_ROUNDS = 20; // safety cap — in practice 1-3 rounds always fills the quota
     const triedNames = new Set(); // tracks all names ever generated (avoids duplicates across rounds)
     const available = [];
 
@@ -206,7 +206,12 @@ export async function generateNames({
     }
 
     if (available.length < count) {
-        console.error(`Warning: filled ${available.length}/${count} slots after ${MAX_ROUNDS} rounds — submitting what's available`);
+        throw new Error(
+            `Could not fill domain quota after ${MAX_ROUNDS} rounds: ` +
+            `got ${available.length}/${count} available names on .${extension}. ` +
+            `Check that RAPIDAPI_KEY is valid and the domain checker endpoint is reachable. ` +
+            `To skip domain checking, pass requireDomains=false or use --no-domains.`
+        );
     }
 
     return available.slice(0, count);
