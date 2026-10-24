@@ -319,8 +319,26 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 submitted.push(name);
                 console.error(`✓ Submitted: ${name}`);
 
-                // Polite delay between submissions
-                await sleep(2000);
+                // After a successful submission atom.com briefly shows a confirmation
+                // and then re-renders the form. Wait for the input to re-appear before
+                // proceeding to the next name.
+                try {
+                    await page.waitForSelector(
+                        "input[name*='domain' i], input[placeholder*='domain' i], input[placeholder*='name' i]",
+                        { state: "visible", timeout: 8000 }
+                    );
+                    console.error(`Form ready for next entry`);
+                } catch {
+                    console.error(`Form did not re-appear after 8s — continuing anyway`);
+                }
+
+                // Re-hide Intercom after each submission (it may reappear on page re-render)
+                await page.evaluate(() => {
+                    const ic = document.getElementById("intercom-container");
+                    if (ic) ic.style.display = "none";
+                }).catch(() => {});
+
+                await sleep(1000);
 
             } catch (err) {
                 console.error(`✗ Failed: ${name} — ${err.message}`);
