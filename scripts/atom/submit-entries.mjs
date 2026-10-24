@@ -319,26 +319,37 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 submitted.push(name);
                 console.error(`✓ Submitted: ${name}`);
 
-                // After a successful submission atom.com briefly shows a confirmation
-                // and then re-renders the form. Wait for the input to re-appear before
-                // proceeding to the next name.
-                try {
-                    await page.waitForSelector(
-                        "input[name*='domain' i], input[placeholder*='domain' i], input[placeholder*='name' i]",
-                        { state: "visible", timeout: 8000 }
-                    );
-                    console.error(`Form ready for next entry`);
-                } catch {
-                    console.error(`Form did not re-appear after 8s — continuing anyway`);
+                // After submission atom.com closes the entry panel (shows a confirmation).
+                // We need to re-open it by clicking "SUBMIT YOUR ENTRY" again.
+                await sleep(1500);
+                const reopenSelectors = [
+                    "button:has-text('SUBMIT YOUR ENTRY')",
+                    "a:has-text('SUBMIT YOUR ENTRY')",
+                    "button:has-text('Submit Your Entry')",
+                    "a:has-text('Submit Your Entry')",
+                ];
+                let panelReopened = false;
+                for (const sel of reopenSelectors) {
+                    try {
+                        const btn = page.locator(sel).first();
+                        if (await btn.count() > 0 && await btn.isVisible()) {
+                            await btn.click();
+                            console.error(`Re-opened entry panel via: ${sel}`);
+                            await page.waitForTimeout(2000);
+                            panelReopened = true;
+                            break;
+                        }
+                    } catch { /* ignore */ }
+                }
+                if (!panelReopened) {
+                    console.error(`Could not re-open entry panel — input may still be visible`);
                 }
 
-                // Re-hide Intercom after each submission (it may reappear on page re-render)
+                // Re-hide Intercom after panel re-open
                 await page.evaluate(() => {
                     const ic = document.getElementById("intercom-container");
                     if (ic) ic.style.display = "none";
                 }).catch(() => {});
-
-                await sleep(1000);
 
             } catch (err) {
                 console.error(`✗ Failed: ${name} — ${err.message}`);
