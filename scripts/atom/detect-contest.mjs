@@ -5,9 +5,12 @@
  *
  * Uses lastParticipatedId (separate from the notifier's lastContestId) so the
  * notifier's 3-min detection cycle doesn't prevent this script from participating.
+ *
+ * Uses Playwright to fetch atom.com (plain Axios is blocked by Cloudflare).
  */
 
 import axios from "axios";
+import { chromium } from "playwright";
 import { readFileSync, existsSync, appendFileSync } from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -60,6 +63,29 @@ async function writeStateToGist(state) {
     );
 }
 
+function parseCookies(cookieStr) {
+    return cookieStr.split(";").map((part) => {
+        const [name, ...rest] = part.trim().split("=");
+        return { name: name.trim(), value: rest.join("=").trim(), domain: ".atom.com", path: "/" };
+    }).filter((c) => c.name && c.value);
+}
+
+async function fetchWithPlaywright(url, cookies) {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const context = await browser.newContext({
+            userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        });
+        await context.addCookies(parseCookies(cookies));
+        const page = await context.newPage();
+        await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+        await page.waitForTimeout(2000);
+        return await page.content();
+    } finally {
+        await browser.close();
+    }
+}
+
 async function detectContest() {
     const contestUrl = process.env.CONTEST_URL;
     const cookies = process.env.CONTEST_COOKIES;
@@ -70,13 +96,9 @@ async function detectContest() {
         return;
     }
 
-    // Fetch current contest list
-    const response = await axios.get(contestUrl, {
-        headers: { Cookie: cookies, "User-Agent": "Mozilla/5.0" },
-        timeout: 15000,
-    });
-
-    const html = response.data;
+    // Fetch current contest list via Playwright (bypasses Cloudflare — plain Axios gets challenged)
+    console.error(`Fetching contest list via Playwright: ${contestUrl}`);
+    const html = await fetchWithPlaywright(contestUrl, cookies);
 
     // Same regex as atom-notifier
     const match = html.match(
