@@ -12,6 +12,9 @@ on:
         description: "Dry run (generate names but don't submit)"
         type: boolean
         default: false
+      test_names:
+        description: "Comma-separated test names to submit directly (skips OpenAI generation)"
+        required: false
 
 jobs:
   participate:
@@ -60,7 +63,9 @@ jobs:
         run: |
           DRY_RUN_FLAG=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
-          node run-contest.mjs "${{ inputs.contest_url }}" $DRY_RUN_FLAG
+          TEST_NAMES_FLAG=""
+          if [ -n "${{ inputs.test_names }}" ]; then TEST_NAMES_FLAG="--test-names=${{ inputs.test_names }}"; fi
+          node run-contest.mjs "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG
 
       - name: Run contest (auto-detected)
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
