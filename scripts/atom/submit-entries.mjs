@@ -225,7 +225,7 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 await input.click();
                 await input.clear();
                 await input.fill(name);
-                await sleep(500);
+                await sleep(300);
 
                 // Verify fill worked
                 const val = await input.inputValue().catch(() => "");
@@ -237,9 +237,25 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 }
                 console.error(`Filled: ${name}`);
 
-                // Click the submit button — try force-click first (bypasses visibility checks
-                // that fail when hidden-xs/React re-renders make the button "not visible"),
-                // then fall back to JS evaluate click, then Enter on the input.
+                // Trigger blur to fire the domain availability XHR (contests.php?action=entry_available).
+                // atom.com validates on blur — without this the Submit button does nothing.
+                await input.press("Tab");
+                console.error(`Triggered blur for availability check: ${name}`);
+
+                // Wait for the availability XHR to complete and show the green "Ok to submit" tick.
+                // We wait up to 5s; if the selector never appears we fall through and try Submit anyway.
+                try {
+                    await page.waitForSelector(
+                        "text='Ok to submit'",
+                        { state: "visible", timeout: 5000 }
+                    );
+                    console.error(`Availability confirmed: ${name}`);
+                } catch {
+                    console.error(`Availability check timed out — submitting anyway: ${name}`);
+                }
+
+                // Click the submit button via force-click (bypasses hidden-xs/React visibility issues),
+                // falling back to JS evaluate click.
                 let submitClicked = false;
                 try {
                     await page.locator(".entry_form_submit").first().click({ force: true, timeout: 3000 });
