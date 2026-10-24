@@ -47,7 +47,7 @@ function contestCacheKey(url) {
     return m ? m[1] : url;
 }
 
-async function runContest(contestUrl, { dryRun = false, requireDomains = true } = {}) {
+async function runContest(contestUrl, { dryRun = false, requireDomains = true, testNames = null } = {}) {
     const startTime = Date.now();
     console.error(`\n${"=".repeat(60)}`);
     console.error(`Atom Contest Automation`);
@@ -94,6 +94,35 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true } 
     }
 
     // ── Steps 2–3: Generate names + select premium (with cache) ─────────────
+    // Short-circuit: if test names were provided, skip all API calls entirely.
+    if (testNames && testNames.length > 0) {
+        console.error(`\nSteps 2–4: Using ${testNames.length} provided test names — skipping OpenAI/RapidAPI`);
+        console.error(`  Test names: ${testNames.join(", ")}`);
+        log.steps.generateNames = { success: true, count: testNames.length, names: testNames, testMode: true };
+        log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "test mode" };
+        log.steps.prepare = { success: true, totalEntries: testNames.length, allEntries: testNames };
+
+        console.error(`\nStep 5/5: Submitting ${testNames.length} test entries to atom.com...`);
+        let submissionResult = { submitted: [], failed: [], alreadySubmitted: [] };
+        try {
+            submissionResult = await submitEntries(contestUrl, testNames, { dryRun });
+        } catch (err) {
+            log.steps.submit = { success: false, error: err.message };
+            saveLog(log);
+            throw err;
+        }
+        log.steps.submit = {
+            success: true,
+            submitted: submissionResult.submitted.length,
+            failed: submissionResult.failed.length,
+            alreadySubmitted: submissionResult.alreadySubmitted.length,
+        };
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1) + "s";
+        log.result = { success: true, submitted: submissionResult.submitted.length, failed: submissionResult.failed.length, elapsed, finishedAt: new Date().toISOString() };
+        saveLog(log);
+        return log;
+    }
+
     const cacheKey = contestCacheKey(contestUrl);
     const namesCache = loadNamesCache();
     const cached = namesCache[cacheKey];
@@ -235,13 +264,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const contestUrl = args.find((a) => a.startsWith("http"));
     const dryRun = args.includes("--dry-run");
     const requireDomains = !args.includes("--no-domains");
+    const testNamesArg = args.find((a) => a.startsWith("--test-names="));
+    const testNames = testNamesArg ? testNamesArg.slice("--test-names=".length).split(",").map((n) => n.trim()).filter(Boolean) : null;
 
     if (!contestUrl) {
-        console.error("Usage: node run-contest.mjs <contest-url> [--dry-run] [--no-domains]");
+        console.error("Usage: node run-contest.mjs <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,Name2,...]");
         process.exit(1);
     }
 
-    const result = await runContest(contestUrl, { dryRun, requireDomains });
+    const result = await runContest(contestUrl, { dryRun, requireDomains, testNames });
     console.log(JSON.stringify(result, null, 2));
     process.exit(result.result?.success ? 0 : 1);
 }
