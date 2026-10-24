@@ -134,6 +134,16 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
 
         await dumpPageState(page, "after opening entry panel");
 
+        // Dismiss Intercom chat widget — it appears as a floating iframe that
+        // intercepts pointer events on the input field after the first submission.
+        await page.evaluate(() => {
+            const ic = document.getElementById("intercom-container");
+            if (ic) ic.style.display = "none";
+            const icFrame = document.getElementById("intercom-frame");
+            if (icFrame) icFrame.style.display = "none";
+        });
+        console.error("Intercom widget hidden");
+
         // Detect expired session: login modal or sign-in link appeared
         const loginSignals = await page.locator(
             "[class*='login']:visible, [class*='signin']:visible, " +
@@ -221,8 +231,14 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 const input = await findDomainInput();
                 if (!input) throw new Error("Domain input disappeared");
 
-                // Clear and fill
-                await input.click();
+                // Re-hide Intercom in case it reappeared since the panel was opened
+                await page.evaluate(() => {
+                    const ic = document.getElementById("intercom-container");
+                    if (ic) ic.style.display = "none";
+                }).catch(() => {});
+
+                // Clear and fill — force:true bypasses Intercom iframe pointer interception
+                await input.click({ force: true });
                 await input.clear();
                 await input.fill(name);
                 await sleep(300);
@@ -242,12 +258,16 @@ export async function submitEntries(contestUrl, names, { dryRun = false } = {}) 
                 await input.press("Tab");
                 console.error(`Triggered blur for availability check: ${name}`);
 
-                // Wait for the availability XHR to complete and show the green "Ok to submit" tick.
+                // Wait for the availability XHR to complete — atom.com shows a green tick
+                // with text like "Ok to submit. <name>.com is available."
                 // We wait up to 5s; if the selector never appears we fall through and try Submit anyway.
                 try {
-                    await page.waitForSelector(
-                        "text='Ok to submit'",
-                        { state: "visible", timeout: 5000 }
+                    await page.waitForFunction(
+                        () => {
+                            const body = document.body.innerText.toLowerCase();
+                            return body.includes("ok to submit") || body.includes("is available");
+                        },
+                        { timeout: 5000 }
                     );
                     console.error(`Availability confirmed: ${name}`);
                 } catch {
