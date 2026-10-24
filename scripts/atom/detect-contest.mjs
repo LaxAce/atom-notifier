@@ -121,7 +121,9 @@ async function detectContest() {
     }
 
     const [, contestId, contestPath, contestTitle] = match;
-    const fullContestUrl = `https://atom.com${contestPath}`;
+    const fullContestUrl = contestPath.startsWith("http")
+        ? contestPath
+        : `https://www.atom.com${contestPath}`;
 
     console.error(`Latest contest: ${contestId} — ${contestTitle}`);
 
