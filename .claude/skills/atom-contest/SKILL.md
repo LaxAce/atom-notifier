@@ -77,13 +77,14 @@ Map what the contest brief asks for → AiNameIt style:
 
 ### Domain Availability Retry Loop
 
-`generate-names.mjs` keeps retrying until the quota is filled or 10 rounds are exhausted:
-1. Generate a fresh batch via OpenAI (3x the remaining needed, min 20 per batch)
-2. Check each name against RapidAPI domain checker for the contest's extension (.com, .io, etc.)
-3. Add newly confirmed-available names to the list
-4. Repeat from step 1 until `count` available unique names are collected
+`generate-names.mjs` keeps retrying until the **full quota is confirmed available** (up to 20 rounds):
+1. Calculate how many more names are still needed (`count - available.length`)
+2. Ask OpenAI for `needed × 3` fresh names (never repeating already-tried names)
+3. Check each via RapidAPI for the contest's extension (.com, .io, etc.)
+4. Add newly confirmed-available names to the list
+5. Repeat from step 1 until all 20/25 slots are filled
 
-Only domain-confirmed names reach the submission stage — no padding with unchecked names.
+**Submission never starts until the full quota is domain-confirmed.** If 20 rounds are exhausted without filling the quota, the script throws an error (check `RAPIDAPI_KEY` or use `--no-domains`). In practice 1–3 rounds is enough.
 
 ```bash
 cd /home/user/atom-notifier
