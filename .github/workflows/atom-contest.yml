@@ -1,8 +1,6 @@
 name: Atom Contest Automation
 
 on:
-  schedule:
-    - cron: "*/5 * * * *" # every 5 minutes — checks for new contests
   workflow_dispatch:
     inputs:
       contest_url:
