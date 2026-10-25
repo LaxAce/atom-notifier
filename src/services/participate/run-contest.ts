@@ -1,54 +1,36 @@
-/**
- * Main orchestrator — runs the full contest participation pipeline:
- * 1. Parse brief from atom.com
- * 2. Compress brief
- * 3. Generate 35 names via OpenAI
- * 4. Select 5 premium listings
- * 5. Submit 40 entries to atom.com
- *
- * Usage:
- *   node run-contest.mjs "https://atom.com/contest/12345"
- *   node run-contest.mjs "https://atom.com/contest/12345" --dry-run
- *   node run-contest.mjs "https://atom.com/contest/12345" --no-domains
- */
-
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
-import { fileURLToPath } from "url";
 import path from "path";
-import { scrapeContestPage, parseContestHtml, compressBrief, pickNameStyle } from "./parse-brief.mjs";
-import { generateNames } from "./generate-names.mjs";
-import { selectPremiumNames } from "./select-premium.mjs";
-import { submitEntries } from "./submit-entries.mjs";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { scrapeContestPage, parseContestHtml, compressBrief, pickNameStyle, BriefData } from "./parse-brief";
+import { generateNames } from "./generate-names";
+import { selectPremiumNames } from "./select-premium";
+import { submitEntries } from "./submit-entries";
 
 const ENTRIES_PER_CONTEST = 25;
-const NAMES_FROM_AI = 20;       // when premium allowed: 20 AI + 5 premium = 25 total
+const NAMES_FROM_AI = 20;
 const NAMES_FROM_PREMIUM = 5;
-const NAMES_FROM_AI_NO_PREMIUM = 25; // when premium not allowed: 25 AI names
-
-// ── Names cache (per contest URL) ────────────────────────────────────────────
-// Saves OpenAI + RapidAPI calls on re-runs for the same contest.
+const NAMES_FROM_AI_NO_PREMIUM = 25;
 
 const CACHE_FILE = path.join(__dirname, "logs", "names-cache.json");
 
-function loadNamesCache() {
+function loadNamesCache(): Record<string, any> {
     if (!existsSync(CACHE_FILE)) return {};
     try { return JSON.parse(readFileSync(CACHE_FILE, "utf8")); } catch { return {}; }
 }
 
-function saveNamesCache(cache) {
+function saveNamesCache(cache: Record<string, any>): void {
     mkdirSync(path.join(__dirname, "logs"), { recursive: true });
     writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
-function contestCacheKey(url) {
-    // Use just the contest ID portion so minor URL differences still hit the cache
+function contestCacheKey(url: string): string {
     const m = url.match(/\/(\d+)\//);
     return m ? m[1] : url;
 }
 
-async function runContest(contestUrl, { dryRun = false, requireDomains = true, testNames = null } = {}) {
+async function runContest(
+    contestUrl: string,
+    { dryRun = false, requireDomains = true, testNames = null as string[] | null } = {}
+): Promise<Record<string, any>> {
     const startTime = Date.now();
     console.error(`\n${"=".repeat(60)}`);
     console.error(`Atom Contest Automation`);
@@ -56,7 +38,7 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
     console.error(`Dry run: ${dryRun} | Domain check: ${requireDomains}`);
     console.error(`${"=".repeat(60)}\n`);
 
-    const log = {
+    const log: Record<string, any> = {
         contestUrl,
         startedAt: new Date().toISOString(),
         dryRun,
@@ -64,14 +46,14 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         result: null,
     };
 
-    // ── Step 1: Parse brief ───────────────────────────────────────────────────
     console.error("Step 1/5: Fetching and parsing contest brief...");
-    let briefData;
+    let briefData: BriefData & { compressedBrief: string; suggestedStyle: string };
     try {
         const html = await scrapeContestPage(contestUrl);
-        briefData = parseContestHtml(html, contestUrl);
-        briefData.compressedBrief = await compressBrief(briefData.rawBrief, briefData.title, briefData.industry);
-        briefData.suggestedStyle = pickNameStyle(briefData.styleHints, briefData.contestType);
+        const parsed = parseContestHtml(html, contestUrl);
+        const compressedBrief = await compressBrief(parsed.rawBrief, parsed.title, parsed.industry);
+        const suggestedStyle = pickNameStyle(parsed.styleHints, parsed.contestType);
+        briefData = { ...parsed, compressedBrief, suggestedStyle };
 
         log.steps.parseBrief = {
             success: true,
@@ -89,13 +71,11 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         console.error(`  Suggested style: ${briefData.suggestedStyle}`);
         console.error(`  Compressed brief (${briefData.compressedBrief.length} chars): ${briefData.compressedBrief.slice(0, 100)}...`);
     } catch (err) {
-        log.steps.parseBrief = { success: false, error: err.message };
+        log.steps.parseBrief = { success: false, error: (err as any).message };
         saveLog(log);
-        throw new Error(`Failed to parse brief: ${err.message}`);
+        throw new Error(`Failed to parse brief: ${(err as any).message}`);
     }
 
-    // ── Steps 2–3: Generate names + select premium (with cache) ─────────────
-    // Short-circuit: if test names were provided, skip all API calls entirely.
     if (testNames && testNames.length > 0) {
         console.error(`\nSteps 2–4: Using ${testNames.length} provided test names — skipping OpenAI/RapidAPI`);
         console.error(`  Test names: ${testNames.join(", ")}`);
@@ -104,11 +84,11 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         log.steps.prepare = { success: true, totalEntries: testNames.length, allEntries: testNames };
 
         console.error(`\nStep 5/5: Submitting ${testNames.length} test entries to atom.com...`);
-        let submissionResult = { submitted: [], failed: [], alreadySubmitted: [] };
+        let submissionResult = { submitted: [] as string[], failed: [] as any[], alreadySubmitted: [] as string[] };
         try {
             submissionResult = await submitEntries(contestUrl, testNames, { dryRun });
         } catch (err) {
-            log.steps.submit = { success: false, error: err.message };
+            log.steps.submit = { success: false, error: (err as any).message };
             saveLog(log);
             throw err;
         }
@@ -128,8 +108,8 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
     const namesCache = loadNamesCache();
     const cached = namesCache[cacheKey];
 
-    let aiNames = [];
-    let premiumNames = [];
+    let aiNames: string[] = [];
+    let premiumNames: string[] = [];
 
     if (cached) {
         console.error(`\nStep 2/5: Using cached names for contest ${cacheKey} (saved ${cached.cachedAt})`);
@@ -140,7 +120,6 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         console.error(`  AI names (${aiNames.length}): ${aiNames.slice(0, 5).join(", ")}...`);
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
-        // ── Step 2: Generate AI names ─────────────────────────────────────────
         const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM;
         console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? " (20 AI + 5 premium)" : " (25 AI, premium not allowed)"}...`);
         try {
@@ -157,39 +136,32 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
             log.steps.generateNames = { success: true, count: aiNames.length, names: aiNames };
             console.error(`  Generated ${aiNames.length} names: ${aiNames.slice(0, 5).join(", ")}...`);
         } catch (err) {
-            log.steps.generateNames = { success: false, error: err.message };
+            log.steps.generateNames = { success: false, error: (err as any).message };
             saveLog(log);
-            throw new Error(`Failed to generate names: ${err.message}`);
+            throw new Error(`Failed to generate names: ${(err as any).message}`);
         }
 
-        // ── Step 3: Select premium listings ──────────────────────────────────
         if (!briefData.premiumAllowed) {
             console.error(`\nStep 3/5: Skipping premium listings (contest does not accept premium domains)`);
             log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "contest does not accept premium domains" };
         } else {
             console.error(`\nStep 3/5: Selecting ${NAMES_FROM_PREMIUM} premium listings...`);
             try {
-                premiumNames = selectPremiumNames(
-                    briefData.compressedBrief,
-                    briefData.industry,
-                    NAMES_FROM_PREMIUM
-                );
+                premiumNames = selectPremiumNames(briefData.compressedBrief, briefData.industry, NAMES_FROM_PREMIUM);
                 const industryNote = briefData.industry || "no industry detected — using generalist names";
                 log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
                 console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
             } catch (err) {
-                log.steps.selectPremium = { success: false, error: err.message };
-                console.error(`  Warning: premium selection failed — ${err.message}`);
+                log.steps.selectPremium = { success: false, error: (err as any).message };
+                console.error(`  Warning: premium selection failed — ${(err as any).message}`);
             }
         }
 
-        // Save to cache so re-runs skip API calls
         namesCache[cacheKey] = { aiNames, premiumNames, cachedAt: new Date().toISOString() };
         saveNamesCache(namesCache);
         console.error(`  Names cached for contest ${cacheKey}`);
     }
 
-    // ── Step 4: Combine all 40 entries ────────────────────────────────────────
     const allEntries = dedup([...premiumNames, ...aiNames]).slice(0, ENTRIES_PER_CONTEST);
     console.error(`\nStep 4/5: Prepared ${allEntries.length} entries total`);
     console.error(`  Premium: ${premiumNames.length} | AI: ${aiNames.length}`);
@@ -197,9 +169,8 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
 
     log.steps.prepare = { success: true, totalEntries: allEntries.length, allEntries };
 
-    // ── Step 5: Submit to atom.com ────────────────────────────────────────────
     console.error(`\nStep 5/5: Submitting ${allEntries.length} entries to atom.com...`);
-    let submissionResult = { submitted: [], failed: [], alreadySubmitted: [] };
+    let submissionResult = { submitted: [] as string[], failed: [] as any[], alreadySubmitted: [] as string[] };
     try {
         submissionResult = await submitEntries(contestUrl, allEntries, { dryRun });
 
@@ -213,14 +184,13 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
         console.error(`\n  Submitted: ${submissionResult.submitted.length}`);
         console.error(`  Failed: ${submissionResult.failed.length}`);
         if (submissionResult.failed.length) {
-            submissionResult.failed.forEach((f) => console.error(`    - ${f.name}: ${f.error}`));
+            submissionResult.failed.forEach((f: any) => console.error(`    - ${f.name}: ${f.error}`));
         }
     } catch (err) {
-        log.steps.submit = { success: false, error: err.message };
-        console.error(`  Submission failed: ${err.message}`);
+        log.steps.submit = { success: false, error: (err as any).message };
+        console.error(`  Submission failed: ${(err as any).message}`);
     }
 
-    // ── Finish ────────────────────────────────────────────────────────────────
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     const submitStep = log.steps.submit;
     log.result = {
@@ -241,8 +211,8 @@ async function runContest(contestUrl, { dryRun = false, requireDomains = true, t
     return log;
 }
 
-function dedup(arr) {
-    const seen = new Set();
+function dedup(arr: string[]): string[] {
+    const seen = new Set<string>();
     return arr.filter((x) => {
         const lower = x.toLowerCase();
         if (seen.has(lower)) return false;
@@ -251,29 +221,29 @@ function dedup(arr) {
     });
 }
 
-function saveLog(log) {
+function saveLog(log: Record<string, any>): void {
     const logsDir = path.join(__dirname, "logs");
     mkdirSync(logsDir, { recursive: true });
     const filename = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".json";
     writeFileSync(path.join(logsDir, filename), JSON.stringify(log, null, 2));
 }
 
-// ── CLI ───────────────────────────────────────────────────────────────────────
+if (require.main === module) {
+    (async () => {
+        const args = process.argv.slice(2);
+        const contestUrl = args.find((a) => a.startsWith("http"));
+        const dryRun = args.includes("--dry-run");
+        const requireDomains = !args.includes("--no-domains");
+        const testNamesArg = args.find((a) => a.startsWith("--test-names="));
+        const testNames = testNamesArg ? testNamesArg.slice("--test-names=".length).split(",").map((n) => n.trim()).filter(Boolean) : null;
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    const args = process.argv.slice(2);
-    const contestUrl = args.find((a) => a.startsWith("http"));
-    const dryRun = args.includes("--dry-run");
-    const requireDomains = !args.includes("--no-domains");
-    const testNamesArg = args.find((a) => a.startsWith("--test-names="));
-    const testNames = testNamesArg ? testNamesArg.slice("--test-names=".length).split(",").map((n) => n.trim()).filter(Boolean) : null;
+        if (!contestUrl) {
+            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,Name2,...]");
+            process.exit(1);
+        }
 
-    if (!contestUrl) {
-        console.error("Usage: node run-contest.mjs <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,Name2,...]");
-        process.exit(1);
-    }
-
-    const result = await runContest(contestUrl, { dryRun, requireDomains, testNames });
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(result.result?.success ? 0 : 1);
+        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames });
+        console.log(JSON.stringify(result, null, 2));
+        process.exit(result.result?.success ? 0 : 1);
+    })();
 }

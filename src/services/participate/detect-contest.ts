@@ -1,21 +1,7 @@
-/**
- * Detect new contests on atom.com.
- * Compares current latest contest ID against lastParticipatedId in GitHub Gist.
- * Writes CONTEST_URL and IS_NEW to GitHub Actions output.
- *
- * Uses lastParticipatedId (separate from the notifier's lastContestId) so the
- * notifier's 3-min detection cycle doesn't prevent this script from participating.
- *
- * Uses Playwright to fetch atom.com (plain Axios is blocked by Cloudflare).
- */
-
 import axios from "axios";
 import { chromium } from "playwright";
 import { readFileSync, existsSync, appendFileSync } from "fs";
-import { fileURLToPath } from "url";
 import path from "path";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const envFile = path.join(__dirname, ".env.atom");
 if (existsSync(envFile)) {
@@ -28,18 +14,15 @@ if (existsSync(envFile)) {
     }
 }
 
-function writeOutput(key, value) {
+function writeOutput(key: string, value: string): void {
     const outputFile = process.env.GITHUB_OUTPUT;
-    if (outputFile) {
-        appendFileSync(outputFile, `${key}=${value}\n`);
-    }
+    if (outputFile) appendFileSync(outputFile, `${key}=${value}\n`);
     console.error(`Output: ${key}=${value}`);
 }
 
-async function readStateFromGist() {
+async function readStateFromGist(): Promise<Record<string, unknown>> {
     const { GIST_ID, GIST_TOKEN, GIST_NAME } = process.env;
     if (!GIST_ID || !GIST_TOKEN) return {};
-
     try {
         const response = await axios.get(`https://api.github.com/gists/${GIST_ID}`, {
             headers: { Authorization: `token ${GIST_TOKEN}`, "User-Agent": "atom-contest-bot" },
@@ -51,10 +34,9 @@ async function readStateFromGist() {
     }
 }
 
-async function writeStateToGist(state) {
+async function writeStateToGist(state: Record<string, unknown>): Promise<void> {
     const { GIST_ID, GIST_TOKEN, GIST_NAME } = process.env;
     if (!GIST_ID || !GIST_TOKEN) return;
-
     const fileName = GIST_NAME || "state.json";
     try {
         await axios.patch(
@@ -63,23 +45,23 @@ async function writeStateToGist(state) {
             { headers: { Authorization: `token ${GIST_TOKEN}`, "User-Agent": "atom-contest-bot" } }
         );
     } catch (err) {
-        const status = err?.response?.status;
+        const status = (err as any)?.response?.status;
         if (status === 401) {
             console.error("ERROR: GIST_TOKEN is expired or invalid (401 Unauthorized). Renew it in GitHub Actions secrets.");
         } else {
-            console.error(`Warning: failed to write state to Gist (${status ?? err.message}). State NOT saved — contest may re-detect on next run.`);
+            console.error(`Warning: failed to write state to Gist (${status ?? (err as any)?.message}). State NOT saved — contest may re-detect on next run.`);
         }
     }
 }
 
-function parseCookies(cookieStr) {
+function parseCookies(cookieStr: string) {
     return cookieStr.split(";").map((part) => {
         const [name, ...rest] = part.trim().split("=");
         return { name: name.trim(), value: rest.join("=").trim(), domain: ".atom.com", path: "/" };
     }).filter((c) => c.name && c.value);
 }
 
-async function fetchWithPlaywright(url, cookies) {
+async function fetchWithPlaywright(url: string, cookies: string): Promise<string> {
     const browser = await chromium.launch({ headless: true });
     try {
         const context = await browser.newContext({
@@ -95,7 +77,7 @@ async function fetchWithPlaywright(url, cookies) {
     }
 }
 
-async function detectContest() {
+async function detectContest(): Promise<void> {
     const contestUrl = process.env.CONTEST_URL;
     const cookies = process.env.CONTEST_COOKIES;
 
@@ -105,11 +87,9 @@ async function detectContest() {
         return;
     }
 
-    // Fetch current contest list via Playwright (bypasses Cloudflare — plain Axios gets challenged)
     console.error(`Fetching contest list via Playwright: ${contestUrl}`);
     const html = await fetchWithPlaywright(contestUrl, cookies);
 
-    // Same regex as atom-notifier
     const match = html.match(
         /<ul class="content pull-left watching_contests">\s*<li[^>]*data-contest-id="([^"]+)"[^>]*>[\s\S]*?<div class="top clearfix">\s*<a href="([^"]+)">\s*([^<]+(?:\s*<span[^>]*>[^<]*<\/span>)?)\s*<\/a>[\s\S]*?<a[^>]*href="\/branding-marketing-naming-contests"[^>]*>Naming\s*<span>\/<\/span>\s*(Company Name|Tagline)\s*<\/a>/
     );
@@ -128,9 +108,7 @@ async function detectContest() {
     console.error(`Latest contest: ${contestId} — ${contestTitle}`);
 
     const state = await readStateFromGist();
-    // Use a separate field from the notifier's lastContestId so they don't conflict.
-    // The notifier writes lastContestId; we track lastParticipatedId independently.
-    const lastParticipatedId = state.lastParticipatedId;
+    const lastParticipatedId = state.lastParticipatedId as string | undefined;
 
     if (contestId === lastParticipatedId) {
         console.error("No new contest (already participated).");
@@ -148,4 +126,6 @@ async function detectContest() {
     writeOutput("CONTEST_ID", contestId);
 }
 
-await detectContest();
+(async () => {
+    await detectContest();
+})();
