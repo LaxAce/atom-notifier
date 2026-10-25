@@ -15,16 +15,21 @@
   "dependencies": {
     "@types/nodemailer": "^6.4.17",
     "axios": "^1.10.0",
+    "axios-retry": "^4.0.0",
+    "cheerio": "^1.0.0",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "nodemailer": "^7.0.4",
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "openai": "^4.0.0",
+    "playwright": "^1.48.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

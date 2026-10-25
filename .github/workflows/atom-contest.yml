@@ -29,28 +29,24 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        working-directory: scripts/atom
-        run: npm install
+        run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: scripts/atom
         run: npx playwright install chromium --with-deps
 
       - name: Check for new contest (auto-detect)
         if: ${{ !inputs.contest_url }}
         id: detect
-        working-directory: scripts/atom
         env:
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
           CONTEST_URL: ${{ secrets.CONTEST_URL }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_NAME: ${{ secrets.GIST_NAME }}
-        run: node detect-contest.mjs
+        run: npx tsx src/services/participate/detect-contest.ts
 
       - name: Run contest (manual URL)
         if: ${{ inputs.contest_url }}
-        working-directory: scripts/atom
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
@@ -63,11 +59,10 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
           TEST_NAMES_FLAG=""
           if [ -n "${{ inputs.test_names }}" ]; then TEST_NAMES_FLAG="--test-names=${{ inputs.test_names }}"; fi
-          node run-contest.mjs "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG
+          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG
 
       - name: Run contest (auto-detected)
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
-        working-directory: scripts/atom
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
@@ -75,7 +70,7 @@ jobs:
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
           DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
-        run: node run-contest.mjs "${{ steps.detect.outputs.CONTEST_URL }}"
+        run: npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}"
 
       - name: Skip — no new contest
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW != 'true' }}
@@ -86,6 +81,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: contest-logs-${{ github.run_id }}
-          path: scripts/atom/logs/
+          path: src/services/participate/logs/
           retention-days: 30
           if-no-files-found: ignore
