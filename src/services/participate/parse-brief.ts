@@ -146,9 +146,17 @@ export function parseContestHtml(html: string, url: string): BriefData {
     else if (domainText.includes(".ai")) extension = "ai";
     else if (domainText.includes(".co")) extension = "co";
 
+    // Default to true: premium domains are allowed unless the brief explicitly
+    // prohibits them. We only flip to false on unambiguous prohibition text.
+    // A bare UI indicator like "Premium domains: No" (atom.com's default display)
+    // is NOT treated as a prohibition — the contest holder must have written
+    // something like "no premium domains" or "premium domains are not allowed".
     const fullText = $("body").text();
-    const premiumMatch = fullText.match(/premium domains? allowed[^a-z]*?(yes|no)/i);
-    const premiumAllowed = premiumMatch ? premiumMatch[1].toLowerCase() !== "no" : true;
+    const premiumProhibited =
+        /premium\s+domains?\s+(?:are\s+)?not\s+(?:allowed|permitted|accepted)/i.test(fullText) ||
+        /no\s+premium\s+domains?/i.test(fullText) ||
+        /premium\s+domains?\s*[-:]\s*no\b/i.test(fullText);
+    const premiumAllowed = !premiumProhibited;
 
     const styleHints = extractStyleHints(briefText + " " + title);
     const keywords = extractKeywords(briefText, title);
