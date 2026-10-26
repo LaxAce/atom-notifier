@@ -67,6 +67,7 @@ async function waitForFormReady(
     const domSelectors = [
         "input[name*='domain' i]",
         "input[placeholder*='domain' i]",
+        "input[name*='company' i]",
         "input[placeholder*='name' i]",
         "input[name*='entry' i]",
         "input[name*='suggestion' i]",
@@ -233,6 +234,28 @@ export async function submitEntries(
             return null;
         }
 
+        // Some contests (type: company_name) have a separate Company Name field
+        // in addition to the Domain Name field. Both are required.
+        // We fill both with the same value (99% of cases); the rare exception
+        // is when the domain slug differs from the display name (e.g. moonandstar.com
+        // vs "Moon & Star"), but that requires human judgement, not automation.
+        async function findCompanyNameInput() {
+            const selectors = [
+                "input[name*='company' i]",
+                "input[id*='company' i]",
+                "input[placeholder*='company name' i]",
+                "input[placeholder*='company' i]",
+            ];
+            for (const sel of selectors) {
+                const loc = page.locator(sel).first();
+                if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+                    console.error(`Company name input found via: ${sel}`);
+                    return loc;
+                }
+            }
+            return null;
+        }
+
         const firstInput = await findDomainInput();
         if (!firstInput) {
             const html = await page.content();
@@ -246,17 +269,36 @@ export async function submitEntries(
         // finished mounting its event handlers yet (common after NDA acceptance).
         await waitForFormReady(page, findDomainInput);
 
+        // Detect once whether this is a two-field form (company_name contest type)
+        const hasCompanyNameField = !!(await findCompanyNameInput());
+        console.error(`Form layout: ${hasCompanyNameField ? "Company Name + Domain Name (two fields)" : "Domain Name only (one field)"}`);
+
         for (const name of names) {
             if (alreadySubmitted.includes(name)) continue;
 
             try {
-                const input = await findDomainInput();
-                if (!input) throw new Error("Domain input disappeared");
-
                 await page.evaluate(() => {
                     const ic = document.getElementById("intercom-container");
                     if (ic) (ic as HTMLElement).style.display = "none";
                 }).catch(() => {});
+
+                // For two-field contests, fill Company Name BEFORE Domain Name.
+                // This ensures the required Company Name field is populated before
+                // the form's blur/submit validation fires.
+                if (hasCompanyNameField) {
+                    const companyInput = await findCompanyNameInput();
+                    if (companyInput) {
+                        await companyInput.click({ force: true });
+                        await companyInput.press("Control+a");
+                        await companyInput.press("Delete");
+                        await companyInput.type(name, { delay: 30 });
+                        await sleep(200);
+                        console.error(`Filled company name: ${name}`);
+                    }
+                }
+
+                const input = await findDomainInput();
+                if (!input) throw new Error("Domain input disappeared");
 
                 await input.click({ force: true });
                 // Use type() not fill(): atom.com uses React-controlled inputs and fill()
@@ -266,7 +308,7 @@ export async function submitEntries(
                 await input.type(name, { delay: 30 });
                 await sleep(300);
 
-                console.error(`Filled: ${name}`);
+                console.error(`Filled domain name: ${name}`);
 
                 await input.press("Tab");
                 console.error(`Triggered blur for availability check: ${name}`);
