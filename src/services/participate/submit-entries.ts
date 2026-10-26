@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
+import { acceptNdaIfRequired } from "./parse-brief";
 
 const envFile = path.join(__dirname, ".env.atom");
 if (existsSync(envFile)) {
@@ -85,6 +86,12 @@ export async function submitEntries(
         console.error(`Navigating to contest: ${contestUrl}`);
         await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
         await page.waitForTimeout(3000);
+
+        // Accept NDA if required — without this, the submission form won't appear
+        const ndaAccepted = await acceptNdaIfRequired(page);
+        if (ndaAccepted) {
+            await page.waitForTimeout(2000);
+        }
 
         await dumpPageState(page, "after page load");
 
