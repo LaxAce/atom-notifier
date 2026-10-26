@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
 import path from "path";
-import { scrapeContestPage, parseContestHtml, compressBrief, pickNameStyle, BriefData } from "./parse-brief";
+import { scrapeContestPage, parseContestHtml, parseBriefWithAI, pickNameStyle, BriefData } from "./parse-brief";
 import { generateNames } from "./generate-names";
 import { selectPremiumNames } from "./select-premium";
 import { submitEntries } from "./submit-entries";
@@ -51,16 +51,27 @@ async function runContest(
     try {
         const html = await scrapeContestPage(contestUrl);
         const parsed = parseContestHtml(html, contestUrl);
-        const compressedBrief = await compressBrief(parsed.rawBrief, parsed.title, parsed.industry);
-        const suggestedStyle = pickNameStyle(parsed.styleHints, parsed.contestType);
-        briefData = { ...parsed, compressedBrief, suggestedStyle };
+        const aiParsed = await parseBriefWithAI(parsed.rawBrief, parsed.title, parsed.industry);
+        const fallbackStyle = pickNameStyle(parsed.styleHints, parsed.contestType);
+        briefData = {
+            ...parsed,
+            compressedBrief: aiParsed.description,
+            suggestedStyle: aiParsed.suggestedStyle || fallbackStyle,
+            keywords: aiParsed.keywords || parsed.keywords,
+            nameQualities: aiParsed.nameQualities,
+            avoid: aiParsed.avoid,
+            alreadyRejected: aiParsed.alreadyRejected,
+        };
 
         log.steps.parseBrief = {
             success: true,
             title: briefData.title,
             contestType: briefData.contestType,
             industry: briefData.industry,
-            compressedBriefLength: briefData.compressedBrief.length,
+            keywords: briefData.keywords,
+            nameQualities: briefData.nameQualities,
+            avoid: briefData.avoid,
+            alreadyRejectedCount: briefData.alreadyRejected?.split(",").filter(Boolean).length || 0,
             suggestedStyle: briefData.suggestedStyle,
             premiumAllowed: briefData.premiumAllowed,
         };
@@ -69,7 +80,10 @@ async function runContest(
         console.error(`  Industry: ${briefData.industry}`);
         console.error(`  Premium domains allowed: ${briefData.premiumAllowed}`);
         console.error(`  Suggested style: ${briefData.suggestedStyle}`);
-        console.error(`  Compressed brief (${briefData.compressedBrief.length} chars): ${briefData.compressedBrief.slice(0, 100)}...`);
+        console.error(`  Keywords: ${briefData.keywords}`);
+        console.error(`  Name qualities: ${briefData.nameQualities}`);
+        console.error(`  Avoid: ${briefData.avoid}`);
+        console.error(`  Already rejected (${log.steps.parseBrief.alreadyRejectedCount}): ${briefData.alreadyRejected?.slice(0, 80)}...`);
     } catch (err) {
         log.steps.parseBrief = { success: false, error: (err as any).message };
         saveLog(log);
@@ -135,6 +149,9 @@ async function runContest(
                 count: aiCount,
                 requireDomains,
                 temperature: 0.7,
+                nameQualities: briefData.nameQualities,
+                avoid: briefData.avoid,
+                alreadyRejected: briefData.alreadyRejected,
             });
 
             log.steps.generateNames = { success: true, count: aiNames.length, names: aiNames };
