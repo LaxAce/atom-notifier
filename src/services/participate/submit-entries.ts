@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
+import OpenAI from "openai";
 import { acceptNdaIfRequired } from "./parse-brief";
 
 const envFile = path.join(__dirname, ".env.atom");
@@ -112,10 +113,65 @@ async function waitForFormReady(
     console.error("  Warning: could not confirm form readiness after 8 attempts — proceeding anyway");
 }
 
+/**
+ * Generate a short, human-sounding description for every name in one OpenAI
+ * call. Returns a map of { name -> description }. Falls back gracefully to {}
+ * if OPENAI_API_KEY is absent, brief is empty, or the call fails.
+ *
+ * The description is 1-2 sentences, grounded in the actual contest brief,
+ * and written in a natural voice — not marketing copy.
+ */
+async function generateDescriptions(
+    names: string[],
+    brief: string,
+    contestTitle: string
+): Promise<Record<string, string>> {
+    if (!process.env.OPENAI_API_KEY || !brief || names.length === 0) return {};
+
+    try {
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+        const res = await openai.chat.completions.create({
+            model,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content:
+                        "You write short submission notes for naming contest entries. " +
+                        "For each name: 1-2 sentences, plain human voice, no buzzwords, " +
+                        "no filler phrases like 'this name captures' or 'embodies the essence of'. " +
+                        "Be specific to why this name fits the brief — mention the industry or feeling it evokes. " +
+                        "Max 45 words per name. Respond as JSON: { \"Name\": \"description\", ... }",
+                },
+                {
+                    role: "user",
+                    content:
+                        `Contest: ${contestTitle}\n` +
+                        `Brief: ${brief.slice(0, 500)}\n\n` +
+                        `Names:\n${names.map((n) => `- ${n}`).join("\n")}\n\n` +
+                        "Write a description for each name.",
+                },
+            ],
+            max_tokens: 60 * names.length,
+            temperature: 0.65,
+        });
+
+        const raw = res.choices[0].message.content?.trim() || "{}";
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        console.error(`Generated descriptions for ${Object.keys(parsed).length}/${names.length} names`);
+        return parsed;
+    } catch (err) {
+        console.error(`Warning: description generation failed — ${(err as any).message}`);
+        return {};
+    }
+}
+
 export async function submitEntries(
     contestUrl: string,
     names: string[],
-    { dryRun = false } = {}
+    { dryRun = false, brief = "", contestTitle = "" } = {}
 ): Promise<{ submitted: string[]; failed: { name: string; error: string }[]; alreadySubmitted: string[] }> {
     const cookies = process.env.CONTEST_COOKIES;
     if (!cookies) throw new Error("CONTEST_COOKIES env var is required");
@@ -125,6 +181,11 @@ export async function submitEntries(
         names.forEach((n) => console.error(`  - ${n}`));
         return { submitted: [...names], failed: [], alreadySubmitted: [] };
     }
+
+    // Generate all descriptions upfront — one API call for all names.
+    // If this fails, descriptions will be empty and the textarea is left blank.
+    console.error(`Generating name descriptions via OpenAI...`);
+    const descriptions = await generateDescriptions(names, brief, contestTitle);
 
     console.error(`Launching browser (headless)...`);
     const browser = await chromium.launch({ headless: true });
@@ -151,9 +212,6 @@ export async function submitEntries(
         // Accept NDA if required — without this, the submission form won't appear
         const ndaAccepted = await acceptNdaIfRequired(page);
         if (ndaAccepted) {
-            // Wait for the page to settle after NDA acceptance before probing the form.
-            // The modal close triggers a re-render; we use waitForSelector so we don't
-            // wait longer than needed, but we do wait at least until the DOM is ready.
             try {
                 await page.waitForSelector(
                     "button:has-text('SUBMIT YOUR ENTRY'), a:has-text('SUBMIT YOUR ENTRY'), " +
@@ -161,7 +219,6 @@ export async function submitEntries(
                     { state: "visible", timeout: 10000 }
                 );
             } catch {
-                // Button may already be visible or have a different label — fall through
                 await page.waitForTimeout(2000);
             }
         }
@@ -236,9 +293,6 @@ export async function submitEntries(
 
         // Some contests (type: company_name) have a separate Company Name field
         // in addition to the Domain Name field. Both are required.
-        // We fill both with the same value (99% of cases); the rare exception
-        // is when the domain slug differs from the display name (e.g. moonandstar.com
-        // vs "Moon & Star"), but that requires human judgement, not automation.
         async function findCompanyNameInput() {
             const selectors = [
                 "input[name*='company' i]",
@@ -256,6 +310,24 @@ export async function submitEntries(
             return null;
         }
 
+        async function findDescriptionTextarea() {
+            const selectors = [
+                "textarea[placeholder*='Describe Your Name' i]",
+                "textarea[placeholder*='meaning behind' i]",
+                "textarea[placeholder*='describe' i]",
+                "textarea[name*='description' i]",
+                "textarea[name*='reason' i]",
+                "textarea[name*='note' i]",
+            ];
+            for (const sel of selectors) {
+                const loc = page.locator(sel).first();
+                if (await loc.count() > 0 && await loc.isVisible().catch(() => false)) {
+                    return loc;
+                }
+            }
+            return null;
+        }
+
         const firstInput = await findDomainInput();
         if (!firstInput) {
             const html = await page.content();
@@ -264,12 +336,8 @@ export async function submitEntries(
             throw new Error("Could not find Domain Name input. HTML dumped to logs/debug-page.html.");
         }
 
-        // Validate the form is fully interactive before starting submissions.
-        // This catches the case where the input exists in the DOM but React hasn't
-        // finished mounting its event handlers yet (common after NDA acceptance).
         await waitForFormReady(page, findDomainInput);
 
-        // Detect once whether this is a two-field form (company_name contest type)
         const hasCompanyNameField = !!(await findCompanyNameInput());
         console.error(`Form layout: ${hasCompanyNameField ? "Company Name + Domain Name (two fields)" : "Domain Name only (one field)"}`);
 
@@ -283,8 +351,6 @@ export async function submitEntries(
                 }).catch(() => {});
 
                 // For two-field contests, fill Company Name BEFORE Domain Name.
-                // This ensures the required Company Name field is populated before
-                // the form's blur/submit validation fires.
                 if (hasCompanyNameField) {
                     const companyInput = await findCompanyNameInput();
                     if (companyInput) {
@@ -301,8 +367,6 @@ export async function submitEntries(
                 if (!input) throw new Error("Domain input disappeared");
 
                 await input.click({ force: true });
-                // Use type() not fill(): atom.com uses React-controlled inputs and fill()
-                // bypasses React's synthetic events, leaving the form state empty.
                 await input.press("Control+a");
                 await input.press("Delete");
                 await input.type(name, { delay: 30 });
@@ -342,6 +406,21 @@ export async function submitEntries(
                     console.error(`Availability confirmed: ${name}`);
                 } catch {
                     console.error(`Availability check timed out — submitting anyway: ${name}`);
+                }
+
+                // Fill the description textarea if present.
+                // Uses the pre-generated description; silently skips if none found.
+                const description = descriptions[name] || "";
+                if (description) {
+                    const textarea = await findDescriptionTextarea();
+                    if (textarea) {
+                        await textarea.click({ force: true });
+                        await textarea.press("Control+a");
+                        await textarea.press("Delete");
+                        await textarea.type(description, { delay: 15 });
+                        console.error(`Filled description: ${description.slice(0, 80)}${description.length > 80 ? "..." : ""}`);
+                        await sleep(150);
+                    }
                 }
 
                 let submitClicked = false;
@@ -433,16 +512,18 @@ if (require.main === module) {
         const contestUrl = get("--contest-url");
         const namesStr = get("--names") || "";
         const dryRun = has("--dry-run");
+        const brief = get("--brief") || "";
+        const contestTitle = get("--title") || "";
 
         if (!contestUrl || !namesStr) {
-            console.error("Usage: npx tsx submit-entries.ts --contest-url <url> --names <comma-separated-names>");
+            console.error("Usage: npx tsx submit-entries.ts --contest-url <url> --names <comma-separated-names> [--brief <text>] [--title <text>]");
             process.exit(1);
         }
 
         const names = namesStr.split(",").map((n) => n.trim()).filter(Boolean);
         console.error(`Submitting ${names.length} names to ${contestUrl}${dryRun ? " (DRY RUN)" : ""}...`);
 
-        const result = await submitEntries(contestUrl, names, { dryRun });
+        const result = await submitEntries(contestUrl, names, { dryRun, brief, contestTitle });
         console.log(JSON.stringify(result, null, 2));
         console.error(`Done: ${result.submitted.length} submitted, ${result.failed.length} failed, ${result.alreadySubmitted.length} already submitted`);
     })();
