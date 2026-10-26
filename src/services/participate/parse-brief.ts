@@ -28,6 +28,9 @@ export interface BriefData {
     premiumAllowed: boolean;
     compressedBrief?: string;
     suggestedStyle?: string;
+    nameQualities?: string;
+    avoid?: string;
+    alreadyRejected?: string;
 }
 
 // Detects and accepts the NDA modal if present on the contest page.
@@ -189,6 +192,64 @@ function extractKeywords(brief: string, title: string): string {
     const stopWords = new Set(["that", "this", "with", "have", "will", "your", "from", "they", "been", "were", "their", "what", "when", "where", "which", "about", "more", "into", "also", "some", "than", "then", "them", "these", "those", "each", "most", "over"]);
     const unique = [...new Set(words.filter((w) => !stopWords.has(w)))];
     return unique.slice(0, 8).join(",");
+}
+
+export async function parseBriefWithAI(rawBrief: string, title: string, industry: string): Promise<{
+    description: string;
+    keywords: string;
+    nameQualities: string;
+    avoid: string;
+    alreadyRejected: string;
+    suggestedStyle: string;
+}> {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+    const res = await openai.chat.completions.create({
+        model,
+        messages: [
+            {
+                role: "system",
+                content: `You are a senior brand strategist with 10 years of experience creating world-class brand names. Deeply analyze the contest brief and extract the most naming-relevant information — the insights that lead to names like Airbnb, Tesla, Stripe, or Crumbl.
+
+Return a JSON object with exactly these fields:
+
+description: 2-3 sentences capturing the unique essence of the business — what makes it distinctive, not just what it does. The narrative, positioning, and emotional promise. Max 400 chars.
+
+keywords: 6-8 brand-relevant root concepts (single words or short concepts) that could seed great names. The core ideas, metaphors, feelings, or key differentiators. NEVER include generic words like "name", "business", "brand", "company", "service", "product", "solution", "platform". Return as comma-separated values.
+
+nameQualities: The tone, style, and vibe the name should have — including any brand references mentioned (e.g. "Tesla, Airbnb or Crumbl"). Include emotional qualities: bold, warm, clever, minimal, strong, etc. Max 200 chars.
+
+avoid: Specific words, concepts, patterns, or associations to avoid in names. Include any words the brief explicitly says to avoid. Max 200 chars.
+
+alreadyRejected: Comma-separated list of specific names already submitted or rejected by the client (verbatim from the brief). Empty string if none.
+
+suggestedStyle: One of: auto, blends, compound, real_words, short_phrase, brandable_names, creative_spelling, non_english_words.
+
+Return only valid JSON, no markdown.`,
+            },
+            {
+                role: "user",
+                content: `Contest title: ${title}\nIndustry: ${industry || "Not specified"}\n\nBrief:\n${rawBrief.slice(0, 4000)}`,
+            },
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 600,
+        temperature: 0.3,
+    });
+
+    const raw = res.choices[0].message.content?.trim() || "{}";
+    let parsed: any = {};
+    try { parsed = JSON.parse(raw); } catch { /* fallback to empty */ }
+
+    return {
+        description: (parsed.description || "").slice(0, 400),
+        keywords: (parsed.keywords || "").slice(0, 200),
+        nameQualities: (parsed.nameQualities || "").slice(0, 200),
+        avoid: (parsed.avoid || "").slice(0, 200),
+        alreadyRejected: (parsed.alreadyRejected || "").slice(0, 500),
+        suggestedStyle: parsed.suggestedStyle || "auto",
+    };
 }
 
 export async function compressBrief(rawBrief: string, title: string, industry: string): Promise<string> {

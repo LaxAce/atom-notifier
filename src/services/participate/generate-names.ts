@@ -76,6 +76,9 @@ export async function generateNames({
     count = 20,
     requireDomains = true,
     temperature = 0.7,
+    nameQualities = "",
+    avoid = "",
+    alreadyRejected = "",
 }: {
     description: string;
     keywords?: string;
@@ -84,6 +87,9 @@ export async function generateNames({
     count?: number;
     requireDomains?: boolean;
     temperature?: number;
+    nameQualities?: string;
+    avoid?: string;
+    alreadyRejected?: string;
 }): Promise<string[]> {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -93,6 +99,9 @@ export async function generateNames({
 
     const desc = sanitize(description).slice(0, 600);
     const kw = sanitize(keywords).slice(0, 180);
+    const qualities = sanitize(nameQualities).slice(0, 200);
+    const avoidStr = sanitize(avoid).slice(0, 200);
+    const rejected = sanitize(alreadyRejected).slice(0, 500);
 
     const batchSize = 20;
     const MAX_ROUNDS = 20;
@@ -117,11 +126,29 @@ export async function generateNames({
                     messages: [
                         {
                             role: "system",
-                            content: `Generate ${batchSize} names, do not add the extensions to the end of the names, names should only contain alphabet, names should be at least 3 letters, names should not exceed ${maxLength}, 20% of the generated names should not be based on the 'Product description,' 'Keywords,' or 'Naming style. Every name in the array should be unique. Most importantly, ensure that the names are easy to pronounce and spell, and that they don't end with double letters like 'xx', 'oo', 'ee', etc. names should not end with 'q'. ${kw ? `60% of the names should be based on the 'Keywords'` : ""}`,
+                            content: `You are a world-class brand naming expert. Generate ${batchSize} brand names following these rules:
+- Names must contain only alphabet characters, be at least 3 letters, and not exceed ${maxLength} characters
+- Every name must be unique and not appear in the already-rejected list
+- Names must be easy to pronounce and spell
+- Names must NOT end with double letters like 'xx', 'oo', 'ee', etc., and must NOT end with 'q'
+- 20% of names should be creative and not directly based on keywords (unexpected angles)
+${kw ? `- 60% of names should be inspired by the provided keywords (root concepts, not literal copies)` : ""}
+${avoidStr ? `- NEVER use these words/patterns in names: ${avoidStr}` : ""}
+${rejected ? `- NEVER generate any of these already-rejected names: ${rejected}` : ""}`,
                         },
                         {
                             role: "user",
-                            content: `Generate ${batchSize} company names with the following criteria:\n- Product description: ${desc}\n- Keywords: ${kw || "None"}\n- Name length: Ensure name doesn't exceed 5 to ${maxLength} characters\n- Maximum number of words: ${maxWords}\n- Naming style: ${styleDesc}\n- Extensions: ${extension}\n- Syllables: Ensure all names have maximum of ${maxLength > 12 ? 4 : 3} syllables.\n- Domain availability: ${requireDomains ? `Ensure the names are likely available as domains in the following extensions: (${extension}). Utilize common prefixes and suffixes to increase domain availability.` : "Do not consider domain extensions."}\n- Pronunciation and spelling: Ensure all names are easy to pronounce and spell.`,
+                            content: `Generate ${batchSize} brand names with the following criteria:
+- Business description: ${desc}
+- Keywords (root concepts to draw from): ${kw || "None"}
+${qualities ? `- Name should feel: ${qualities}` : ""}
+- Name length: 5 to ${maxLength} characters
+- Maximum number of words: ${maxWords}
+- Naming style: ${styleDesc}
+- Domain extension: ${extension}
+- Syllables: max ${maxLength > 12 ? 4 : 3} syllables
+- Domain availability: ${requireDomains ? `Names should be likely available as .${extension} domains` : "Domain availability not required"}
+- Pronunciation: All names must be easy to pronounce and spell on first encounter`,
                         },
                     ],
                     response_format: {
