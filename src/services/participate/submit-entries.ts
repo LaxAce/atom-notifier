@@ -64,7 +64,6 @@ async function waitForFormReady(
 ): Promise<void> {
     console.error("Waiting for form to be ready...");
 
-    // First ensure the input is present in the DOM
     const domSelectors = [
         "input[name*='domain' i]",
         "input[placeholder*='domain' i]",
@@ -82,7 +81,6 @@ async function waitForFormReady(
         console.error("  Warning: timed out waiting for input to appear in DOM");
     }
 
-    // Now confirm React event handlers are attached by typing a test character
     for (let attempt = 1; attempt <= 8; attempt++) {
         const input = await findInput();
         if (!input) {
@@ -96,7 +94,6 @@ async function waitForFormReady(
         await page.waitForTimeout(200);
         const val = await input.inputValue().catch(() => "");
 
-        // Always clear the test character before continuing
         await input.press("Control+a");
         await input.press("Delete");
         await page.waitForTimeout(100);
@@ -113,13 +110,19 @@ async function waitForFormReady(
     console.error("  Warning: could not confirm form readiness after 8 attempts — proceeding anyway");
 }
 
+function stripAiTells(text: string): string {
+    // Em dashes and en dashes are strong AI tells. Replace with a comma+space
+    // so the sentence still reads naturally.
+    return text
+        .replace(/\s*[—–]\s*/g, ", ") // — and –
+        .replace(/,\s*,/g, ",")               // clean up double commas
+        .trim();
+}
+
 /**
  * Generate a short, human-sounding description for every name in one OpenAI
  * call. Returns a map of { name -> description }. Falls back gracefully to {}
  * if OPENAI_API_KEY is absent, brief is empty, or the call fails.
- *
- * The description is 1-2 sentences, grounded in the actual contest brief,
- * and written in a natural voice — not marketing copy.
  */
 async function generateDescriptions(
     names: string[],
@@ -140,9 +143,9 @@ async function generateDescriptions(
                     role: "system",
                     content:
                         "You write short submission notes for naming contest entries. " +
-                        "For each name: 1-2 sentences, plain human voice, no buzzwords, " +
-                        "no filler phrases like 'this name captures' or 'embodies the essence of'. " +
-                        "Be specific to why this name fits the brief — mention the industry or feeling it evokes. " +
+                        "For each name: 1-2 sentences, plain conversational tone, specific to the brief. " +
+                        "NEVER use em dashes (—) or en dashes (–). Use commas or short sentences instead. " +
+                        "No buzzwords. No filler phrases like 'this name captures' or 'embodies the essence of'. " +
                         "Max 45 words per name. Respond as JSON: { \"Name\": \"description\", ... }",
                 },
                 {
@@ -160,8 +163,15 @@ async function generateDescriptions(
 
         const raw = res.choices[0].message.content?.trim() || "{}";
         const parsed = JSON.parse(raw) as Record<string, string>;
-        console.error(`Generated descriptions for ${Object.keys(parsed).length}/${names.length} names`);
-        return parsed;
+
+        // Strip any em/en dashes that slipped through despite the instruction.
+        const cleaned: Record<string, string> = {};
+        for (const [name, desc] of Object.entries(parsed)) {
+            cleaned[name] = stripAiTells(String(desc));
+        }
+
+        console.error(`Generated descriptions for ${Object.keys(cleaned).length}/${names.length} names`);
+        return cleaned;
     } catch (err) {
         console.error(`Warning: description generation failed — ${(err as any).message}`);
         return {};
@@ -182,8 +192,6 @@ export async function submitEntries(
         return { submitted: [...names], failed: [], alreadySubmitted: [] };
     }
 
-    // Generate all descriptions upfront — one API call for all names.
-    // If this fails, descriptions will be empty and the textarea is left blank.
     console.error(`Generating name descriptions via OpenAI...`);
     const descriptions = await generateDescriptions(names, brief, contestTitle);
 
@@ -209,7 +217,6 @@ export async function submitEntries(
         await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
         await page.waitForTimeout(3000);
 
-        // Accept NDA if required — without this, the submission form won't appear
         const ndaAccepted = await acceptNdaIfRequired(page);
         if (ndaAccepted) {
             try {
@@ -291,8 +298,6 @@ export async function submitEntries(
             return null;
         }
 
-        // Some contests (type: company_name) have a separate Company Name field
-        // in addition to the Domain Name field. Both are required.
         async function findCompanyNameInput() {
             const selectors = [
                 "input[name*='company' i]",
@@ -350,7 +355,6 @@ export async function submitEntries(
                     if (ic) (ic as HTMLElement).style.display = "none";
                 }).catch(() => {});
 
-                // For two-field contests, fill Company Name BEFORE Domain Name.
                 if (hasCompanyNameField) {
                     const companyInput = await findCompanyNameInput();
                     if (companyInput) {
@@ -408,8 +412,6 @@ export async function submitEntries(
                     console.error(`Availability check timed out — submitting anyway: ${name}`);
                 }
 
-                // Fill the description textarea if present.
-                // Uses the pre-generated description; silently skips if none found.
                 const description = descriptions[name] || "";
                 if (description) {
                     const textarea = await findDescriptionTextarea();
