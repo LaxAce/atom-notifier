@@ -30,6 +30,38 @@ export interface BriefData {
     suggestedStyle?: string;
 }
 
+// Detects and accepts the NDA modal if present on the contest page.
+// Returns true if NDA was accepted, false if no NDA was required.
+export async function acceptNdaIfRequired(page: any): Promise<boolean> {
+    const ndaButton = page
+        .locator('a:has-text("Review & Accept NDA"), button:has-text("Review & Accept NDA")')
+        .first();
+
+    if ((await ndaButton.count()) === 0 || !(await ndaButton.isVisible().catch(() => false))) {
+        return false;
+    }
+
+    console.error("  NDA required — accepting...");
+    await ndaButton.click();
+
+    // Wait for the NDA modal with its checkbox
+    await page.waitForSelector('input[type="checkbox"]', { timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Check the agreement checkbox
+    const checkbox = page.locator('input[type="checkbox"]').first();
+    await checkbox.check();
+    await page.waitForTimeout(300);
+
+    // Click Accept
+    await page.locator('button:has-text("Accept")').first().click();
+
+    // Wait for the modal to close and the page to update
+    await page.waitForTimeout(3000);
+    console.error("  NDA accepted — brief is now accessible");
+    return true;
+}
+
 export async function scrapeContestPage(url: string): Promise<string> {
     const cookieStr = process.env.CONTEST_COOKIES;
     if (!cookieStr) throw new Error("CONTEST_COOKIES env var is required");
@@ -58,6 +90,9 @@ export async function scrapeContestPage(url: string): Promise<string> {
         if (!response || !response.ok()) {
             throw new Error(`HTTP ${response?.status()} fetching contest page`);
         }
+
+        // Accept NDA if the contest requires it before the brief is visible
+        await acceptNdaIfRequired(page);
 
         return await page.content();
     } finally {
