@@ -182,16 +182,16 @@ export async function submitEntries(
                 }).catch(() => {});
 
                 await input.click({ force: true });
-                await input.clear();
-                await input.fill(name);
+                // Select-all + delete to clear, then type character-by-character.
+                // We use type() rather than fill() because atom.com uses React-controlled
+                // inputs: fill() sets the DOM value but skips React's synthetic events
+                // (onChange/onInput), leaving the form state empty and triggering
+                // "Field cant be blank" on blur.
+                await input.press("Control+a");
+                await input.press("Delete");
+                await input.type(name, { delay: 30 });
                 await sleep(300);
 
-                const val = await input.inputValue().catch(() => "");
-                if (!val) {
-                    await input.click({ clickCount: 3 });
-                    await input.type(name, { delay: 50 });
-                    await sleep(300);
-                }
                 console.error(`Filled: ${name}`);
 
                 await input.press("Tab");
