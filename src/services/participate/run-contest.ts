@@ -86,7 +86,11 @@ async function runContest(
         console.error(`\nStep 5/5: Submitting ${testNames.length} test entries to atom.com...`);
         let submissionResult = { submitted: [] as string[], failed: [] as any[], alreadySubmitted: [] as string[] };
         try {
-            submissionResult = await submitEntries(contestUrl, testNames, { dryRun });
+            submissionResult = await submitEntries(contestUrl, testNames, {
+                dryRun,
+                brief: briefData.compressedBrief,
+                contestTitle: briefData.title,
+            });
         } catch (err) {
             log.steps.submit = { success: false, error: (err as any).message };
             saveLog(log);
@@ -172,7 +176,11 @@ async function runContest(
     console.error(`\nStep 5/5: Submitting ${allEntries.length} entries to atom.com...`);
     let submissionResult = { submitted: [] as string[], failed: [] as any[], alreadySubmitted: [] as string[] };
     try {
-        submissionResult = await submitEntries(contestUrl, allEntries, { dryRun });
+        submissionResult = await submitEntries(contestUrl, allEntries, {
+            dryRun,
+            brief: briefData.compressedBrief,
+            contestTitle: briefData.title,
+        });
 
         log.steps.submit = {
             success: true,
