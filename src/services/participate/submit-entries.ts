@@ -51,6 +51,66 @@ async function dumpPageState(page: any, label: string): Promise<void> {
     console.error(`──────────────────────────────────────`);
 }
 
+/**
+ * Confirm the domain input's React event handlers are mounted before submitting.
+ * Types a single character and verifies the input value updates — this only
+ * succeeds once React's onChange handler is attached. Retries up to 8 times
+ * with 1s gaps before giving up and proceeding anyway.
+ */
+async function waitForFormReady(
+    page: any,
+    findInput: () => Promise<any>
+): Promise<void> {
+    console.error("Waiting for form to be ready...");
+
+    // First ensure the input is present in the DOM
+    const domSelectors = [
+        "input[name*='domain' i]",
+        "input[placeholder*='domain' i]",
+        "input[placeholder*='name' i]",
+        "input[name*='entry' i]",
+        "input[name*='suggestion' i]",
+    ];
+    try {
+        await page.waitForSelector(domSelectors.join(", "), {
+            state: "visible",
+            timeout: 15000,
+        });
+    } catch {
+        console.error("  Warning: timed out waiting for input to appear in DOM");
+    }
+
+    // Now confirm React event handlers are attached by typing a test character
+    for (let attempt = 1; attempt <= 8; attempt++) {
+        const input = await findInput();
+        if (!input) {
+            console.error(`  Attempt ${attempt}/8: input not found — waiting 1s...`);
+            await page.waitForTimeout(1000);
+            continue;
+        }
+
+        await input.click({ force: true });
+        await input.type("x", { delay: 50 });
+        await page.waitForTimeout(200);
+        const val = await input.inputValue().catch(() => "");
+
+        // Always clear the test character before continuing
+        await input.press("Control+a");
+        await input.press("Delete");
+        await page.waitForTimeout(100);
+
+        if (val === "x") {
+            console.error(`  Form ready — React handlers confirmed on attempt ${attempt}`);
+            return;
+        }
+
+        console.error(`  Attempt ${attempt}/8: typed 'x' but value='${val}' — React not ready yet, waiting 1s...`);
+        await page.waitForTimeout(1000);
+    }
+
+    console.error("  Warning: could not confirm form readiness after 8 attempts — proceeding anyway");
+}
+
 export async function submitEntries(
     contestUrl: string,
     names: string[],
@@ -90,7 +150,19 @@ export async function submitEntries(
         // Accept NDA if required — without this, the submission form won't appear
         const ndaAccepted = await acceptNdaIfRequired(page);
         if (ndaAccepted) {
-            await page.waitForTimeout(2000);
+            // Wait for the page to settle after NDA acceptance before probing the form.
+            // The modal close triggers a re-render; we use waitForSelector so we don't
+            // wait longer than needed, but we do wait at least until the DOM is ready.
+            try {
+                await page.waitForSelector(
+                    "button:has-text('SUBMIT YOUR ENTRY'), a:has-text('SUBMIT YOUR ENTRY'), " +
+                    "button:has-text('Submit Your Entry'), a:has-text('Submit Your Entry')",
+                    { state: "visible", timeout: 10000 }
+                );
+            } catch {
+                // Button may already be visible or have a different label — fall through
+                await page.waitForTimeout(2000);
+            }
         }
 
         await dumpPageState(page, "after page load");
@@ -169,6 +241,11 @@ export async function submitEntries(
             throw new Error("Could not find Domain Name input. HTML dumped to logs/debug-page.html.");
         }
 
+        // Validate the form is fully interactive before starting submissions.
+        // This catches the case where the input exists in the DOM but React hasn't
+        // finished mounting its event handlers yet (common after NDA acceptance).
+        await waitForFormReady(page, findDomainInput);
+
         for (const name of names) {
             if (alreadySubmitted.includes(name)) continue;
 
@@ -182,16 +259,13 @@ export async function submitEntries(
                 }).catch(() => {});
 
                 await input.click({ force: true });
-                await input.clear();
-                await input.fill(name);
+                // Use type() not fill(): atom.com uses React-controlled inputs and fill()
+                // bypasses React's synthetic events, leaving the form state empty.
+                await input.press("Control+a");
+                await input.press("Delete");
+                await input.type(name, { delay: 30 });
                 await sleep(300);
 
-                const val = await input.inputValue().catch(() => "");
-                if (!val) {
-                    await input.click({ clickCount: 3 });
-                    await input.type(name, { delay: 50 });
-                    await sleep(300);
-                }
                 console.error(`Filled: ${name}`);
 
                 await input.press("Tab");
