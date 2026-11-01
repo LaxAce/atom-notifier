@@ -201,12 +201,19 @@ ${qualities ? `- Name should feel: ${qualities}` : ""}
     }
 
     if (available.length < count) {
-        throw new Error(
-            `Could not fill domain quota after ${MAX_ROUNDS} rounds: ` +
-            `got ${available.length}/${count} available names on .${extension}. ` +
-            `Check that RAPIDAPI_KEY is valid and the domain checker endpoint is reachable. ` +
-            `To skip domain checking, pass requireDomains=false or use --no-domains.`
-        );
+        if (available.length >= 5) {
+            console.error(
+                `Warning: only got ${available.length}/${count} available names after ${MAX_ROUNDS} rounds — ` +
+                `proceeding with partial results. Check RAPIDAPI_KEY if this happens often.`
+            );
+        } else {
+            throw new Error(
+                `Could not fill domain quota after ${MAX_ROUNDS} rounds: ` +
+                `got ${available.length}/${count} available names on .${extension}. ` +
+                `Check that RAPIDAPI_KEY is valid and the domain checker endpoint is reachable. ` +
+                `To skip domain checking, pass requireDomains=false or use --no-domains.`
+            );
+        }
     }
 
     return available.slice(0, count);

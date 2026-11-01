@@ -31,6 +31,12 @@ async function runContest(
     contestUrl: string,
     { dryRun = false, requireDomains = true, testNames = null as string[] | null } = {}
 ): Promise<Record<string, any>> {
+    if (contestUrl.includes("/logo-design-contest/")) {
+        throw new Error(
+            `Skipping logo design contest — this tool only submits names for naming/branding contests. URL: ${contestUrl}`
+        );
+    }
+
     const startTime = Date.now();
     console.error(`\n${"=".repeat(60)}`);
     console.error(`Atom Contest Automation`);
