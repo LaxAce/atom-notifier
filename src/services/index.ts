@@ -42,6 +42,14 @@ export const checkForNewContests = async () => {
 
         if (!newestContestId) return console.log('No contests found.');
 
+        // Skip logo/design contests — only notify for naming/branding contests
+        const fullContestUrl = contestUrl
+            ? (contestUrl.startsWith('http') ? contestUrl : `https://www.atom.com${contestUrl}`)
+            : '';
+        if (!fullContestUrl.includes('/branding-contest/')) {
+            return console.log(`Contest ${newestContestId} is not a naming/branding contest (URL: ${fullContestUrl}). Skipping notification.`);
+        }
+
         if (newestContestId !== lastSeenContestId) {
             console.log('New contest found:', newestContestId);
             console.log('Contest title:', contestTitle);

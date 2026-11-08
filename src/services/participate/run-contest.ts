@@ -5,10 +5,10 @@ import { generateNames } from "./generate-names";
 import { selectPremiumNames } from "./select-premium";
 import { submitEntries } from "./submit-entries";
 
-const ENTRIES_PER_CONTEST = 25;
-const NAMES_FROM_AI = 20;
-const NAMES_FROM_PREMIUM = 5;
-const NAMES_FROM_AI_NO_PREMIUM = 25;
+const ENTRIES_PER_CONTEST = 15;
+const NAMES_FROM_AI = 12;
+const NAMES_FROM_PREMIUM = 3;
+const NAMES_FROM_AI_NO_PREMIUM = 15;
 
 const CACHE_FILE = path.join(__dirname, "logs", "names-cache.json");
 
@@ -31,6 +31,12 @@ async function runContest(
     contestUrl: string,
     { dryRun = false, requireDomains = true, testNames = null as string[] | null } = {}
 ): Promise<Record<string, any>> {
+    if (contestUrl.includes("/logo-design-contest/")) {
+        throw new Error(
+            `Skipping logo design contest — this tool only submits names for naming/branding contests. URL: ${contestUrl}`
+        );
+    }
+
     const startTime = Date.now();
     console.error(`\n${"=".repeat(60)}`);
     console.error(`Atom Contest Automation`);
@@ -139,7 +145,7 @@ async function runContest(
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
         const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM;
-        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? " (20 AI + 5 premium)" : " (25 AI, premium not allowed)"}...`);
+        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${NAMES_FROM_AI} AI + ${NAMES_FROM_PREMIUM} premium)` : ` (${NAMES_FROM_AI_NO_PREMIUM} AI, premium not allowed)`}...`);
         try {
             aiNames = await generateNames({
                 description: briefData.compressedBrief,

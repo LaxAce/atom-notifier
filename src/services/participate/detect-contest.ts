@@ -69,7 +69,12 @@ async function fetchWithPlaywright(url: string, cookies: string): Promise<string
         });
         await context.addCookies(parseCookies(cookies));
         const page = await context.newPage();
-        await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+        await page.goto(url, { waitUntil: "load", timeout: 90000 });
+        try {
+            await page.waitForSelector('ul.watching_contests, [data-contest-id]', { timeout: 15000 });
+        } catch {
+            // page may not have contest list — continue with whatever loaded
+        }
         await page.waitForTimeout(2000);
         return await page.content();
     } finally {
@@ -106,6 +111,13 @@ async function detectContest(): Promise<void> {
         : `https://www.atom.com${contestPath}`;
 
     console.error(`Latest contest: ${contestId} — ${contestTitle}`);
+
+    // Skip non-naming contests (e.g. logo-design-contest) — we can only submit names
+    if (!fullContestUrl.includes("/branding-contest/")) {
+        console.error(`Contest ${contestId} is not a naming/branding contest (URL: ${fullContestUrl}). Skipping.`);
+        writeOutput("IS_NEW", "false");
+        return;
+    }
 
     const state = await readStateFromGist();
     const lastParticipatedId = state.lastParticipatedId as string | undefined;

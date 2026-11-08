@@ -213,8 +213,10 @@ export async function submitEntries(
     });
 
     try {
-        console.error(`Navigating to contest: ${contestUrl}`);
-        await page.goto(contestUrl, { waitUntil: "networkidle", timeout: 60000 });
+        // Navigate directly to #tab-2 to open the submission panel on page load
+        const navUrl = contestUrl.replace(/#.*$/, "") + "#tab-2";
+        console.error(`Navigating to contest: ${navUrl}`);
+        await page.goto(navUrl, { waitUntil: "load", timeout: 90000 });
         await page.waitForTimeout(3000);
 
         const ndaAccepted = await acceptNdaIfRequired(page);
@@ -253,7 +255,11 @@ export async function submitEntries(
             } catch { /* ignore */ }
         }
         if (!formOpened) {
-            console.error("Warning: 'SUBMIT YOUR ENTRY' button not found — panel may already be open or URL needs #tab-2");
+            console.error("'SUBMIT YOUR ENTRY' button not found — re-navigating with #tab-2 to force panel open");
+            const tab2Url = contestUrl.replace(/#.*$/, "") + "#tab-2";
+            await page.goto(tab2Url, { waitUntil: "load", timeout: 90000 });
+            await page.waitForTimeout(3000);
+            await dumpPageState(page, "after #tab-2 re-navigation");
         }
 
         await dumpPageState(page, "after opening entry panel");
