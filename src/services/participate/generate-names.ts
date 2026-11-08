@@ -15,25 +15,25 @@ if (existsSync(envFile)) {
 }
 
 export const STYLES: Record<string, string> = {
-    auto: "20% of Blends, e.g Sharpcast, Instagram, Wikipedia etc, 20% of Compound, e.g WordPress, Facebook, SnapChat etc, 20% of Brand-able names, e.g Google, Meebo, Praxo etc., 20% of Creative spelling, e.g Flickr, Lyft etc, 10% of Non english words, e.g Zello, Avrio, Karaoke etc, and 10% of Short phrase, e.g Just Do It,  I'm Lovin' It etc.",
-    blends: "Blends, e.g Sharpcast, Instagram, Wikipedia etc.",
-    compound: "Compound, e.g WordPress, WhatsApp, LiveScore, SnapChat etc.",
-    real_words: "Real words, e.g Apple, Amazon, Adobe etc.",
-    short_phrase: "Short phrase, e.g Just Do It,  I'm Lovin' It etc.",
-    brandable_names: "Brand-able names, e.g Google, Meebo, Praxo etc.",
-    creative_spelling: "Creative spelling, e.g Flickr, Lyft etc.",
-    non_english_words: "Non english words, e.g Zello, Avrio, Karaoke etc.",
+    auto: "Mix: 30% Compound (two real words joined, e.g. HealZone, CoreRenew, BrightSpin, ThermaBreeze, StriveHive, Daybridge), 25% Blends (two real concepts merged, e.g. Meritvita, Wellmora, Primeborn, Tracestorm), 20% Brand-able from real roots (e.g. Pettle, Nexevel, Atrelio, Clinipal, Jitless, Nuaxo), 15% Real words used as brand (e.g. Thriving, Matter, Sparring, Portico), 10% Creative spelling of real words (e.g. Pennyz, Piiqe, Spexo)",
+    blends: "Blends of two real concepts or word roots, e.g. Meritvita (merit+vita), Wellmora (well+mora), Tracestorm (trace+storm), Cymbathera (cymba+therapy), Melomont (mellow+mont)",
+    compound: "Two real words joined cleanly, e.g. HealZone, CoreRenew, BrightSpin, ThermaBreeze, StriveHive, FinchHarbor, SkyStream, Daybridge, LittleProteins",
+    real_words: "Real English words used as brand names, e.g. Matter, Thriving, Sparring, Portico, Pettle, Una — common words made distinctive by context",
+    short_phrase: "Short memorable phrase, e.g. 'More Than the Ride', 'Naughty Fruit', 'Little Proteins', 'Rock Brawler'",
+    brandable_names: "Brand-able names built on real roots or recognizable morphemes, e.g. Pettle, Nexevel, Atrelio, Clinipal, Jitless, Nuaxo, Allyond, Opergon, Akhion, Sahano, Suvura, Spexo, Evoiq, Kaivea — each part traceable to a real word or root",
+    creative_spelling: "Creative spelling of real words or blends, e.g. Pennyz (pennies), Piiqe (peak), Spexo (specs), Upnxt (up next), Jitless (jitterless), Loqelo (locale)",
+    non_english_words: "Non-English words or roots that are easy for English speakers to pronounce, e.g. Kaivea, Sahano, Suvura, Velanee, VamshaDhara, Melomont",
 };
 
 export const STYLE_CONSTRAINTS: Record<string, [number, number]> = {
-    auto: [12, 2],
-    compound: [12, 2],
-    brandable_names: [8, 1],
-    blends: [10, 2],
-    creative_spelling: [8, 2],
-    non_english_words: [7, 1],
-    real_words: [8, 1],
-    short_phrase: [15, 3],
+    auto: [14, 2],
+    compound: [14, 2],
+    brandable_names: [12, 1],
+    blends: [12, 2],
+    creative_spelling: [10, 2],
+    non_english_words: [10, 1],
+    real_words: [12, 1],
+    short_phrase: [18, 3],
 };
 
 function sanitize(input: string): string {
@@ -49,6 +49,24 @@ function validateName(name: string): boolean {
         !name.includes(":") &&
         !name.includes("\n")
     );
+}
+
+function isPronounceable(name: string): boolean {
+    const lower = name.replace(/\s+/g, "").toLowerCase();
+    // Reject names ending in awkward letter combos that trip English speakers
+    const badEndings = ["uo", "ao", "tae", "nao", "yao", "oq", "lq", "rq", "niq", "ylu", "ytu", "dae", "bae"];
+    for (const ending of badEndings) {
+        if (lower.endsWith(ending)) return false;
+    }
+    // Reject names starting with uncommon consonant clusters (not real English word starts)
+    const badStarts = ["bly", "pry", "zyp", "zym", "blys", "pryn", "brill", "yun"];
+    for (const start of badStarts) {
+        if (lower.startsWith(start)) return false;
+    }
+    // Reject 4+ consecutive consonants (indicates unpronounceable assembly)
+    const stripped = lower.replace(/[^a-z]/g, "");
+    if (/[bcdfghjklmnpqrstvwxyz]{4,}/.test(stripped)) return false;
+    return true;
 }
 
 async function checkDomain(name: string, ext: string): Promise<string | null> {
@@ -126,29 +144,63 @@ export async function generateNames({
                     messages: [
                         {
                             role: "system",
-                            content: `You are a world-class brand naming expert. Generate ${batchSize} brand names following these rules:
-- Names must contain only alphabet characters, be at least 3 letters, and not exceed ${maxLength} characters
-- Every name must be unique and not appear in the already-rejected list
-- Names must be easy to pronounce and spell
-- Names must NOT end with double letters like 'xx', 'oo', 'ee', etc., and must NOT end with 'q'
-- 20% of names should be creative and not directly based on keywords (unexpected angles)
-${kw ? `- 60% of names should be inspired by the provided keywords (root concepts, not literal copies)` : ""}
-${avoidStr ? `- NEVER use these words/patterns in names: ${avoidStr}` : ""}
-${rejected ? `- NEVER generate any of these already-rejected names: ${rejected}` : ""}`,
+                            content: `You are a brand naming specialist with 10+ years of experience winning professional naming contests. Your names appear in winning entries on competitive platforms.
+
+## NON-NEGOTIABLE: REAL ROOTS ONLY
+Every name MUST be built from recognizable building blocks. Before writing any name, identify what each part means:
+- Real English words: heal, zone, core, bright, thrive, prime, well, spark
+- Latin/Greek roots: vita (life), nova (new), ren (renew), gen (create), meri (merit), sol (sun), lux (light)
+- Recognized morphemes: -born, -bridge, -port, -stead, -scape, -forge, pre-, re-, -al, -on, -ix
+
+NEVER assemble random syllables. If you cannot say "this part means X, that part means Y," do not write the name.
+
+## PRONOUNCEABILITY TEST (mandatory)
+Say each name aloud before listing it. Any English speaker must be able to read it correctly on first encounter with no guidance. If you hesitate, discard it.
+
+## WINNING PATTERNS (use these)
+1. Two meaningful words joined: HealZone, CoreRenew, BrightSpin, ThermaBreeze, StriveHive, Daybridge, SkyStream, LittleProteins, FinchHarbor, SpanGrip
+2. Word + meaningful suffix/root blend: Meritvita (merit+vita), Wellmora (well+mora), Primeborn (prime+born), Tracestorm (trace+storm), Atrelio (atelier+lio)
+3. Real word as brand: Thriving, Sparring, Matter, Portico, Pettle, Una, Melomont
+4. Coined word on traceable roots: Nexevel (next+level), Clinipal (clinic+pal), Jitless (jitter+less), Nuaxo (new+axo), Allyond (ally+beyond), Akhion (action+ion)
+
+## FORBIDDEN PATTERNS (never generate)
+- Names with no traceable root: ~~Elytuo, Zumorya, Zestylu, Prynao, Brilloq, Blystae, Lifoniq~~
+- Endings that trip English speakers: -uo, -ao, -tae, -ae, -oq, -niq, -ylu, -nao
+- Starts with unusual consonant clusters: bly-, pry-, zyp-
+- Names ending in 'q' unless it's styled (Piiqe, Spexo are acceptable because the base word is clear)
+- More than one unusual spelling element per name
+- Names that look like keyboard mashing
+
+## QUALITY BAR
+Every name should make a client say "oh, I see what you did there." The meaning should be felt immediately. Length is flexible — short (5-7 chars) and longer (8-14 chars) names both win. Quality matters more than brevity.
+
+Format: return only alphabet characters and spaces (for two-word names). No punctuation except ampersand for two-word phrase styles.
+${avoidStr ? `\nAVOID these words/concepts entirely: ${avoidStr}` : ""}
+${rejected ? `\nNEVER repeat these already-rejected names: ${rejected}` : ""}`,
                         },
                         {
                             role: "user",
-                            content: `Generate ${batchSize} brand names with the following criteria:
-- Business description: ${desc}
-- Keywords (root concepts to draw from): ${kw || "None"}
-${qualities ? `- Name should feel: ${qualities}` : ""}
-- Name length: 5 to ${maxLength} characters
-- Maximum number of words: ${maxWords}
-- Naming style: ${styleDesc}
-- Domain extension: ${extension}
-- Syllables: max ${maxLength > 12 ? 4 : 3} syllables
-- Domain availability: ${requireDomains ? `Names should be likely available as .${extension} domains` : "Domain availability not required"}
-- Pronunciation: All names must be easy to pronounce and spell on first encounter`,
+                            content: `Generate ${batchSize} brand names for this business.
+
+Business description: ${desc}
+Keywords to draw meaning from (use as roots and concepts, not literally): ${kw || "None"}
+${qualities ? `Desired name qualities: ${qualities}` : ""}
+Naming style: ${styleDesc}
+Name length: 4 to ${maxLength} characters, up to ${maxWords} word(s)
+Domain extension: .${extension}
+
+REFERENCE EXAMPLES of winning names from similar contests (study their construction, do not copy):
+- Health/wellness: Meritvita, Wellmora, Primeborn, HealZone, CoreRenew, LittleProteins, Pettle, Thriving
+- Tech/business: Nexevel, Atrelio, Clinipal, Tracestorm, Jitless, BrightSpin, CoreStrux, Onsteady
+- General brand: Sparring, Matter, Daybridge, Allyond, Nuaxo, Sahano, StriveHive, Kaivea
+
+For EACH name you generate, silently verify:
+1. I can identify what each part means (real word, root, or morpheme)
+2. An English speaker can read it aloud correctly on first try
+3. It evokes the right feeling for the business without explaining it
+4. It does not appear in the rejected list above
+
+Return exactly ${batchSize} names.`,
                         },
                     ],
                     response_format: {
@@ -170,7 +222,7 @@ ${qualities ? `- Name should feel: ${qualities}` : ""}
 
                 const parsed = JSON.parse(res.choices[0].message.content || "{}");
                 for (const n of (parsed.names || [])) {
-                    if (validateName(n) && !triedNames.has(n.toLowerCase())) {
+                    if (validateName(n) && isPronounceable(n) && !triedNames.has(n.toLowerCase())) {
                         triedNames.add(n.toLowerCase());
                         newNames.push(n);
                     }
