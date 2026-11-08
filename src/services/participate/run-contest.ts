@@ -2,11 +2,13 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
 import path from "path";
 import { scrapeContestPage, parseContestHtml, parseBriefWithAI, pickNameStyle, BriefData } from "./parse-brief";
 import { generateNames } from "./generate-names";
+import { selectPremiumNames } from "./select-premium";
 import { submitEntries } from "./submit-entries";
 
 const ENTRIES_PER_CONTEST = 15;
-const NAMES_WITH_DOMAIN = 3;
-const NAMES_WITHOUT_DOMAIN = 12;
+const NAMES_FROM_AI = 12;
+const NAMES_FROM_PREMIUM = 3;
+const NAMES_FROM_AI_NO_PREMIUM = 15;
 
 const CACHE_FILE = path.join(__dirname, "logs", "names-cache.json");
 
@@ -142,38 +144,45 @@ async function runContest(
         console.error(`  AI names (${aiNames.length}): ${aiNames.slice(0, 5).join(", ")}...`);
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
-        const ext = briefData.extension || "com";
-        const commonParams = {
-            description: briefData.compressedBrief,
-            keywords: briefData.keywords,
-            style: briefData.suggestedStyle,
-            extension: ext,
-            temperature: 0.7,
-            nameQualities: briefData.nameQualities,
-            avoid: briefData.avoid,
-            alreadyRejected: briefData.alreadyRejected,
-        };
-
-        console.error(`\nStep 2/5: Generating ${NAMES_WITH_DOMAIN} names with .${ext} domain check + ${NAMES_WITHOUT_DOMAIN} names without domain check...`);
+        const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM;
+        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${NAMES_FROM_AI} AI + ${NAMES_FROM_PREMIUM} premium)` : ` (${NAMES_FROM_AI_NO_PREMIUM} AI, premium not allowed)`}...`);
         try {
-            const [domainNames, noDomainNames] = await Promise.all([
-                requireDomains
-                    ? generateNames({ ...commonParams, count: NAMES_WITH_DOMAIN, requireDomains: true })
-                    : generateNames({ ...commonParams, count: NAMES_WITH_DOMAIN, requireDomains: false }),
-                generateNames({ ...commonParams, count: NAMES_WITHOUT_DOMAIN, requireDomains: false }),
-            ]);
-            aiNames = dedup([...domainNames, ...noDomainNames]);
+            aiNames = await generateNames({
+                description: briefData.compressedBrief,
+                keywords: briefData.keywords,
+                style: briefData.suggestedStyle,
+                extension: briefData.extension || "com",
+                count: aiCount,
+                requireDomains,
+                temperature: 0.7,
+                nameQualities: briefData.nameQualities,
+                avoid: briefData.avoid,
+                alreadyRejected: briefData.alreadyRejected,
+            });
+
             log.steps.generateNames = { success: true, count: aiNames.length, names: aiNames };
-            console.error(`  Domain-checked: ${domainNames.length} | No-domain: ${noDomainNames.length} | Total: ${aiNames.length}`);
-            console.error(`  Names: ${aiNames.slice(0, 5).join(", ")}...`);
+            console.error(`  Generated ${aiNames.length} names: ${aiNames.slice(0, 5).join(", ")}...`);
         } catch (err) {
             log.steps.generateNames = { success: false, error: (err as any).message };
             saveLog(log);
             throw new Error(`Failed to generate names: ${(err as any).message}`);
         }
 
-        console.error(`\nStep 3/5: Skipping premium listings (replaced by no-domain names)`);
-        log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "replaced by no-domain AI names" };
+        if (!briefData.premiumAllowed) {
+            console.error(`\nStep 3/5: Skipping premium listings (contest does not accept premium domains)`);
+            log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "contest does not accept premium domains" };
+        } else {
+            console.error(`\nStep 3/5: Selecting ${NAMES_FROM_PREMIUM} premium listings...`);
+            try {
+                premiumNames = selectPremiumNames(briefData.compressedBrief, briefData.industry, NAMES_FROM_PREMIUM);
+                const industryNote = briefData.industry || "no industry detected — using generalist names";
+                log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
+                console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
+            } catch (err) {
+                log.steps.selectPremium = { success: false, error: (err as any).message };
+                console.error(`  Warning: premium selection failed — ${(err as any).message}`);
+            }
+        }
 
         namesCache[cacheKey] = { aiNames, premiumNames, cachedAt: new Date().toISOString() };
         saveNamesCache(namesCache);
