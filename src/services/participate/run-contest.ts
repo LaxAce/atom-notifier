@@ -4,11 +4,7 @@ import { scrapeContestPage, parseContestHtml, parseBriefWithAI, pickNameStyle, B
 import { generateNames } from "./generate-names";
 import { selectPremiumNames } from "./select-premium";
 import { submitEntries } from "./submit-entries";
-
-const ENTRIES_PER_CONTEST = 15;
-const NAMES_FROM_AI = 12;
-const NAMES_FROM_PREMIUM = 3;
-const NAMES_FROM_AI_NO_PREMIUM = 15;
+import { ENTRIES_PER_CONTEST, NAMES_FROM_AI, NAMES_FROM_PREMIUM, NAMES_FROM_AI_NO_PREMIUM } from "./submission-limits";
 
 const CACHE_FILE = path.join(__dirname, "logs", "names-cache.json");
 
