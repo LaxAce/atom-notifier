@@ -97,6 +97,10 @@ export async function generateNames({
     nameQualities = "",
     avoid = "",
     alreadyRejected = "",
+    likedNames = "",
+    dislikedNames = "",
+    likedWords = "",
+    dislikedWords = "",
 }: {
     description: string;
     keywords?: string;
@@ -108,6 +112,10 @@ export async function generateNames({
     nameQualities?: string;
     avoid?: string;
     alreadyRejected?: string;
+    likedNames?: string;
+    dislikedNames?: string;
+    likedWords?: string;
+    dislikedWords?: string;
 }): Promise<string[]> {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -120,6 +128,13 @@ export async function generateNames({
     const qualities = sanitize(nameQualities).slice(0, 200);
     const avoidStr = sanitize(avoid).slice(0, 200);
     const rejected = sanitize(alreadyRejected).slice(0, 500);
+    const likedNamesStr = sanitize(likedNames).slice(0, 400);
+    const dislikedNamesStr = sanitize(dislikedNames).slice(0, 400);
+    const likedWordsStr = sanitize(likedWords).slice(0, 300);
+    const dislikedWordsStr = sanitize(dislikedWords).slice(0, 300);
+
+    // Merge liked words into keywords so they seed name generation
+    const mergedKeywords = [kw, likedWordsStr].filter(Boolean).join(",");
 
     const batchSize = 20;
     const MAX_ROUNDS = 20;
@@ -176,14 +191,16 @@ Every name should make a client say "oh, I see what you did there." The meaning 
 
 Format: return only alphabet characters and spaces (for two-word names). No punctuation except ampersand for two-word phrase styles.
 ${avoidStr ? `\nAVOID these words/concepts entirely: ${avoidStr}` : ""}
-${rejected ? `\nNEVER repeat these already-rejected names: ${rejected}` : ""}`,
+${dislikedWordsStr ? `\nAVOID these words/roots (user preference): ${dislikedWordsStr}` : ""}
+${rejected ? `\nNEVER repeat these already-rejected names: ${rejected}` : ""}
+${dislikedNamesStr ? `\nNEVER generate names with the same style or pattern as these disliked names: ${dislikedNamesStr}` : ""}`,
                         },
                         {
                             role: "user",
                             content: `Generate ${batchSize} brand names for this business.
 
 Business description: ${desc}
-Keywords to draw meaning from (use as roots and concepts, not literally): ${kw || "None"}
+Keywords to draw meaning from (use as roots and concepts, not literally): ${mergedKeywords || "None"}
 ${qualities ? `Desired name qualities: ${qualities}` : ""}
 Naming style: ${styleDesc}
 Name length: 4 to ${maxLength} characters, up to ${maxWords} word(s)
@@ -193,6 +210,7 @@ REFERENCE EXAMPLES of winning names from similar contests (study their construct
 - Health/wellness: Meritvita, Wellmora, Primeborn, HealZone, CoreRenew, LittleProteins, Pettle, Thriving
 - Tech/business: Nexevel, Atrelio, Clinipal, Tracestorm, Jitless, BrightSpin, CoreStrux, Onsteady
 - General brand: Sparring, Matter, Daybridge, Allyond, Nuaxo, Sahano, StriveHive, Kaivea
+${likedNamesStr ? `\nNAMES WE LIKE (match this quality, style, and construction — do not copy these exactly):\n${likedNamesStr}` : ""}
 
 For EACH name you generate, silently verify:
 1. I can identify what each part means (real word, root, or morpheme)

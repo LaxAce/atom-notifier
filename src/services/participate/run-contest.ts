@@ -25,7 +25,15 @@ function contestCacheKey(url: string): string {
 
 async function runContest(
     contestUrl: string,
-    { dryRun = false, requireDomains = true, testNames = null as string[] | null } = {}
+    {
+        dryRun = false,
+        requireDomains = true,
+        testNames = null as string[] | null,
+        likedNames = "",
+        dislikedNames = "",
+        likedWords = "",
+        dislikedWords = "",
+    } = {}
 ): Promise<Record<string, any>> {
     if (contestUrl.includes("/logo-design-contest/")) {
         throw new Error(
@@ -162,6 +170,10 @@ async function runContest(
                 nameQualities: briefData.nameQualities,
                 avoid: briefData.avoid,
                 alreadyRejected: briefData.alreadyRejected,
+                likedNames,
+                dislikedNames,
+                likedWords,
+                dislikedWords,
             });
 
             log.steps.generateNames = { success: true, count: aiNames.length, names: aiNames };
@@ -274,13 +286,21 @@ if (require.main === module) {
         const requireDomains = !args.includes("--no-domains");
         const testNamesArg = args.find((a) => a.startsWith("--test-names="));
         const testNames = testNamesArg ? testNamesArg.slice("--test-names=".length).split(",").map((n) => n.trim()).filter(Boolean) : null;
+        const likedNamesArg = args.find((a) => a.startsWith("--liked-names="));
+        const likedNames = likedNamesArg ? likedNamesArg.slice("--liked-names=".length) : "";
+        const dislikedNamesArg = args.find((a) => a.startsWith("--disliked-names="));
+        const dislikedNames = dislikedNamesArg ? dislikedNamesArg.slice("--disliked-names=".length) : "";
+        const likedWordsArg = args.find((a) => a.startsWith("--liked-words="));
+        const likedWords = likedWordsArg ? likedWordsArg.slice("--liked-words=".length) : "";
+        const dislikedWordsArg = args.find((a) => a.startsWith("--disliked-words="));
+        const dislikedWords = dislikedWordsArg ? dislikedWordsArg.slice("--disliked-words=".length) : "";
 
         if (!contestUrl) {
-            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,Name2,...]");
+            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,...] [--liked-names=Name1,...] [--disliked-names=Name1,...] [--liked-words=word1,...] [--disliked-words=word1,...]");
             process.exit(1);
         }
 
-        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames });
+        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames, likedNames, dislikedNames, likedWords, dislikedWords });
         console.log(JSON.stringify(result, null, 2));
         process.exit(result.result?.success ? 0 : 1);
     })();

@@ -339,18 +339,27 @@ export async function submitEntries(
             return null;
         }
 
-        const firstInput = await findDomainInput();
-        if (!firstInput) {
+        const firstDomainInput = await findDomainInput();
+        const firstCompanyInput = !firstDomainInput ? await findCompanyNameInput() : null;
+
+        if (!firstDomainInput && !firstCompanyInput) {
             const html = await page.content();
             mkdirSync(path.join(__dirname, "logs"), { recursive: true });
             writeFileSync(path.join(__dirname, "logs", "debug-page.html"), html);
-            throw new Error("Could not find Domain Name input. HTML dumped to logs/debug-page.html.");
+            throw new Error("Could not find Domain Name or Company Name input. HTML dumped to logs/debug-page.html.");
         }
 
-        await waitForFormReady(page, findDomainInput);
+        // name-only contests have a Company Name field but no Domain field
+        const nameOnlyForm = !firstDomainInput && !!firstCompanyInput;
+        console.error(`Form layout: ${nameOnlyForm ? "Company Name only (name-only contest)" : (firstCompanyInput ? "Company Name + Domain Name (two fields)" : "Domain Name only (one field)")}`);
 
-        const hasCompanyNameField = !!(await findCompanyNameInput());
-        console.error(`Form layout: ${hasCompanyNameField ? "Company Name + Domain Name (two fields)" : "Domain Name only (one field)"}`);
+        if (nameOnlyForm) {
+            await waitForFormReady(page, findCompanyNameInput);
+        } else {
+            await waitForFormReady(page, findDomainInput);
+        }
+
+        const hasCompanyNameField = !nameOnlyForm && !!(await findCompanyNameInput());
 
         for (const name of names) {
             if (alreadySubmitted.includes(name)) continue;
@@ -360,6 +369,82 @@ export async function submitEntries(
                     const ic = document.getElementById("intercom-container");
                     if (ic) (ic as HTMLElement).style.display = "none";
                 }).catch(() => {});
+
+                // Name-only contest: fill Company Name and submit — no domain check
+                if (nameOnlyForm) {
+                    const companyInput = await findCompanyNameInput();
+                    if (!companyInput) throw new Error("Company Name input disappeared");
+                    await companyInput.click({ force: true });
+                    await companyInput.press("Control+a");
+                    await companyInput.press("Delete");
+                    await companyInput.type(name, { delay: 30 });
+                    await sleep(300);
+                    console.error(`Filled company name (name-only): ${name}`);
+
+                    const description = descriptions[name] || "";
+                    if (description) {
+                        const textarea = await findDescriptionTextarea();
+                        if (textarea) {
+                            await textarea.click({ force: true });
+                            await textarea.press("Control+a");
+                            await textarea.press("Delete");
+                            await textarea.type(description, { delay: 15 });
+                            console.error(`Filled description: ${description.slice(0, 80)}${description.length > 80 ? "..." : ""}`);
+                            await sleep(150);
+                        }
+                    }
+
+                    let submitClicked = false;
+                    try {
+                        await page.locator(".entry_form_submit").first().click({ force: true, timeout: 3000 });
+                        console.error(`Clicked Submit for: ${name} (force .entry_form_submit)`);
+                        submitClicked = true;
+                    } catch {
+                        submitClicked = await page.evaluate(() => {
+                            const btn = document.querySelector(".entry_form_submit") ||
+                                        document.querySelector("button[type='submit']") ||
+                                        document.querySelector("form .btn-primary");
+                            if (btn) { (btn as HTMLElement).click(); return true; }
+                            return false;
+                        });
+                        if (submitClicked) {
+                            console.error(`Clicked Submit for: ${name} (JS evaluate)`);
+                        } else {
+                            console.error(`No submit button found for: ${name}`);
+                        }
+                    }
+
+                    await page.waitForTimeout(2000);
+
+                    const errEls = await page.locator("[class*='error']:visible, [class*='alert']:visible, [class*='danger']:visible").allTextContents().catch(() => []);
+                    const errEl = (errEls as string[]).join(" ").trim();
+                    if (errEl && /error|invalid|failed|not accept/i.test(errEl)) {
+                        throw new Error(errEl.slice(0, 200));
+                    }
+
+                    submitted.push(name);
+                    console.error(`✓ Submitted: ${name}`);
+
+                    await sleep(1500);
+                    // Re-open entry panel for next name
+                    for (const sel of [
+                        "button:has-text('SUBMIT YOUR ENTRY')",
+                        "a:has-text('SUBMIT YOUR ENTRY')",
+                        ".submit_entry_button",
+                        "[class*='submit_entry']",
+                        "a:has-text('Add More Entries')",
+                        "button:has-text('Add More Entries')",
+                        ".entry_form_submit",
+                    ]) {
+                        const btn = page.locator(sel).first();
+                        if (await btn.count() > 0 && await btn.isVisible().catch(() => false)) {
+                            await btn.click({ force: true }).catch(() => {});
+                            await sleep(1500);
+                            break;
+                        }
+                    }
+                    continue;
+                }
 
                 if (hasCompanyNameField) {
                     const companyInput = await findCompanyNameInput();
