@@ -13,6 +13,18 @@ on:
       test_names:
         description: "Comma-separated test names to submit directly (skips OpenAI generation)"
         required: false
+      liked_names:
+        description: "Comma-separated names you consider high quality (used as style reference, not submitted)"
+        required: false
+      disliked_names:
+        description: "Comma-separated names you dislike (AI will avoid this style/pattern)"
+        required: false
+      liked_words:
+        description: "Comma-separated words/roots you want the AI to draw from (e.g. spark,prime,nova)"
+        required: false
+      disliked_words:
+        description: "Comma-separated words/roots to avoid entirely (e.g. smart,hub,pro)"
+        required: false
 
 jobs:
   participate:
@@ -59,7 +71,15 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
           TEST_NAMES_FLAG=""
           if [ -n "${{ inputs.test_names }}" ]; then TEST_NAMES_FLAG="--test-names=${{ inputs.test_names }}"; fi
-          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG
+          LIKED_NAMES_FLAG=""
+          if [ -n "${{ inputs.liked_names }}" ]; then LIKED_NAMES_FLAG="--liked-names=${{ inputs.liked_names }}"; fi
+          DISLIKED_NAMES_FLAG=""
+          if [ -n "${{ inputs.disliked_names }}" ]; then DISLIKED_NAMES_FLAG="--disliked-names=${{ inputs.disliked_names }}"; fi
+          LIKED_WORDS_FLAG=""
+          if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
+          DISLIKED_WORDS_FLAG=""
+          if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
+          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG
 
       - name: Run contest (auto-detected)
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
@@ -70,7 +90,16 @@ jobs:
           RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
           DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
-        run: npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}"
+        run: |
+          LIKED_NAMES_FLAG=""
+          if [ -n "${{ inputs.liked_names }}" ]; then LIKED_NAMES_FLAG="--liked-names=${{ inputs.liked_names }}"; fi
+          DISLIKED_NAMES_FLAG=""
+          if [ -n "${{ inputs.disliked_names }}" ]; then DISLIKED_NAMES_FLAG="--disliked-names=${{ inputs.disliked_names }}"; fi
+          LIKED_WORDS_FLAG=""
+          if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
+          DISLIKED_WORDS_FLAG=""
+          if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
+          npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}" $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG
 
       - name: Skip — no new contest
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW != 'true' }}
