@@ -80,6 +80,7 @@ async function runContest(
         console.error(`  Title: ${briefData.title}`);
         console.error(`  Type: ${briefData.contestType}`);
         console.error(`  Industry: ${briefData.industry}`);
+        console.error(`  Domain required: ${briefData.domainRequired}`);
         console.error(`  Premium domains allowed: ${briefData.premiumAllowed}`);
         console.error(`  Suggested style: ${briefData.suggestedStyle}`);
         console.error(`  Keywords: ${briefData.keywords}`);
@@ -140,8 +141,15 @@ async function runContest(
         console.error(`  AI names (${aiNames.length}): ${aiNames.slice(0, 5).join(", ")}...`);
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
-        const aiCount = briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM;
-        console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${NAMES_FROM_AI} AI + ${NAMES_FROM_PREMIUM} premium)` : ` (${NAMES_FROM_AI_NO_PREMIUM} AI, premium not allowed)`}...`);
+        const nameOnlyContest = !briefData.domainRequired;
+        const aiCount = nameOnlyContest ? NAMES_FROM_AI_NO_PREMIUM : (briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM);
+
+        if (nameOnlyContest) {
+            console.error(`\nStep 2/5: Name-only contest — generating ${aiCount} names via OpenAI (no domain check)...`);
+        } else {
+            console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${NAMES_FROM_AI} AI + ${NAMES_FROM_PREMIUM} premium)` : ` (${NAMES_FROM_AI_NO_PREMIUM} AI, premium not allowed)`}...`);
+        }
+
         try {
             aiNames = await generateNames({
                 description: briefData.compressedBrief,
@@ -149,7 +157,7 @@ async function runContest(
                 style: briefData.suggestedStyle,
                 extension: briefData.extension || "com",
                 count: aiCount,
-                requireDomains,
+                requireDomains: nameOnlyContest ? false : requireDomains,
                 temperature: 0.7,
                 nameQualities: briefData.nameQualities,
                 avoid: briefData.avoid,
@@ -164,7 +172,10 @@ async function runContest(
             throw new Error(`Failed to generate names: ${(err as any).message}`);
         }
 
-        if (!briefData.premiumAllowed) {
+        if (nameOnlyContest) {
+            console.error(`\nStep 3/5: Skipping premium listings (name-only contest, no domain needed)`);
+            log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "name-only contest" };
+        } else if (!briefData.premiumAllowed) {
             console.error(`\nStep 3/5: Skipping premium listings (contest does not accept premium domains)`);
             log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "contest does not accept premium domains" };
         } else {
