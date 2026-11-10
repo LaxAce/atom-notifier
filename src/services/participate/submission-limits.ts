@@ -1,18 +1,27 @@
 /**
- * Atom.com submission limits — update these when your account limits change.
+ * Atom.com submission limits.
  *
- * To update: tell Claude "update submission limits: X premium, Y AI" and it will
- * change only this file and raise a PR.
+ * To change the default: tell Claude "update submission limit to N" and it
+ * will change DEFAULT_SUBMISSION_LIMIT and raise a PR.
+ *
+ * To override per-run: pass --submission-limit=N in the workflow dispatch input.
+ *
+ * Split formula:
+ *   premium = min(floor(total * 0.30), PREMIUM_CAP)
+ *   ai      = total - premium
+ *
+ * Examples:
+ *   total=25 → ai=20, premium=5   (30% = 7.5 → capped at 5)
+ *   total=70 → ai=65, premium=5   (30% = 21  → capped at 5)
+ *   total=10 → ai=7,  premium=3   (30% = 3   → no cap hit)
  */
 
-/** AI-generated names with domain availability check (when premium domains are allowed) */
-export const NAMES_FROM_AI = 20;
+export const DEFAULT_SUBMISSION_LIMIT = 25;
 
-/** Premium domain listings to include (only when contest allows premium domains) */
-export const NAMES_FROM_PREMIUM = 5;
+/** Hard cap on premium domain entries regardless of total */
+export const PREMIUM_CAP = 5;
 
-/** AI-generated names when contest does NOT allow premium domains */
-export const NAMES_FROM_AI_NO_PREMIUM = NAMES_FROM_AI + NAMES_FROM_PREMIUM;
-
-/** Hard cap on total entries submitted per contest */
-export const ENTRIES_PER_CONTEST = NAMES_FROM_AI + NAMES_FROM_PREMIUM;
+export function computeLimits(total: number): { ai: number; premium: number } {
+    const premium = Math.min(Math.floor(total * 0.3), PREMIUM_CAP);
+    return { ai: total - premium, premium };
+}
