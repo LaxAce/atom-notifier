@@ -26,6 +26,7 @@ export interface BriefData {
     styleHints: string[];
     keywords: string;
     premiumAllowed: boolean;
+    domainRequired: boolean;
     compressedBrief?: string;
     suggestedStyle?: string;
     nameQualities?: string;
@@ -161,10 +162,16 @@ export function parseContestHtml(html: string, url: string): BriefData {
         /premium\s+domains?\s*[-:]\s*no\b/i.test(fullText);
     const premiumAllowed = !premiumProhibited;
 
+    // Detect "name only" contests: holder explicitly says they don't want a domain URL.
+    // atom.com shows "No, I am only looking for a name, not a URL" in the Want a .com URL? section.
+    const domainRequired = !/only\s+looking\s+for\s+a\s+name,?\s+not\s+a\s+url/i.test(fullText) &&
+        !/not\s+looking\s+for\s+a\s+(?:domain|url)/i.test(fullText) &&
+        !/name[,\s]+not\s+a\s+(?:domain|url)/i.test(fullText);
+
     const styleHints = extractStyleHints(briefText + " " + title);
     const keywords = extractKeywords(briefText, title);
 
-    return { url, title, contestType, rawBrief: briefText, industry, extension, styleHints, keywords, premiumAllowed };
+    return { url, title, contestType, rawBrief: briefText, industry, extension, styleHints, keywords, premiumAllowed, domainRequired };
 }
 
 function extractStyleHints(text: string): string[] {
