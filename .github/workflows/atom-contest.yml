@@ -70,21 +70,15 @@ jobs:
           DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
         run: |
-          DRY_RUN_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then DRY_RUN_FLAG="--dry-run"; fi
-          TEST_NAMES_FLAG=""
-          if [ -n "${{ inputs.test_names }}" ]; then TEST_NAMES_FLAG="--test-names=${{ inputs.test_names }}"; fi
-          LIKED_NAMES_FLAG=""
-          if [ -n "${{ inputs.liked_names }}" ]; then LIKED_NAMES_FLAG="--liked-names=${{ inputs.liked_names }}"; fi
-          DISLIKED_NAMES_FLAG=""
-          if [ -n "${{ inputs.disliked_names }}" ]; then DISLIKED_NAMES_FLAG="--disliked-names=${{ inputs.disliked_names }}"; fi
-          LIKED_WORDS_FLAG=""
-          if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
-          DISLIKED_WORDS_FLAG=""
-          if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
-          SUBMISSION_LIMIT_FLAG=""
-          if [ -n "${{ inputs.submission_limit }}" ]; then SUBMISSION_LIMIT_FLAG="--submission-limit=${{ inputs.submission_limit }}"; fi
-          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG $SUBMISSION_LIMIT_FLAG
+          ARGS=("${{ inputs.contest_url }}")
+          [ "${{ inputs.dry_run }}" = "true" ] && ARGS+=("--dry-run")
+          [ -n "${{ inputs.test_names }}" ] && ARGS+=("--test-names=${{ inputs.test_names }}")
+          [ -n "${{ inputs.liked_names }}" ] && ARGS+=("--liked-names=${{ inputs.liked_names }}")
+          [ -n "${{ inputs.disliked_names }}" ] && ARGS+=("--disliked-names=${{ inputs.disliked_names }}")
+          [ -n "${{ inputs.liked_words }}" ] && ARGS+=("--liked-words=${{ inputs.liked_words }}")
+          [ -n "${{ inputs.disliked_words }}" ] && ARGS+=("--disliked-words=${{ inputs.disliked_words }}")
+          [ -n "${{ inputs.submission_limit }}" ] && ARGS+=("--submission-limit=${{ inputs.submission_limit }}")
+          npx tsx src/services/participate/run-contest.ts "${ARGS[@]}"
 
       - name: Run contest (auto-detected)
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
@@ -96,17 +90,13 @@ jobs:
           DOMAIN_CHECKER_URL: ${{ secrets.DOMAIN_CHECKER_URL }}
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
         run: |
-          LIKED_NAMES_FLAG=""
-          if [ -n "${{ inputs.liked_names }}" ]; then LIKED_NAMES_FLAG="--liked-names=${{ inputs.liked_names }}"; fi
-          DISLIKED_NAMES_FLAG=""
-          if [ -n "${{ inputs.disliked_names }}" ]; then DISLIKED_NAMES_FLAG="--disliked-names=${{ inputs.disliked_names }}"; fi
-          LIKED_WORDS_FLAG=""
-          if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
-          DISLIKED_WORDS_FLAG=""
-          if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
-          SUBMISSION_LIMIT_FLAG=""
-          if [ -n "${{ inputs.submission_limit }}" ]; then SUBMISSION_LIMIT_FLAG="--submission-limit=${{ inputs.submission_limit }}"; fi
-          npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}" $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG $SUBMISSION_LIMIT_FLAG
+          ARGS=("${{ steps.detect.outputs.CONTEST_URL }}")
+          [ -n "${{ inputs.liked_names }}" ] && ARGS+=("--liked-names=${{ inputs.liked_names }}")
+          [ -n "${{ inputs.disliked_names }}" ] && ARGS+=("--disliked-names=${{ inputs.disliked_names }}")
+          [ -n "${{ inputs.liked_words }}" ] && ARGS+=("--liked-words=${{ inputs.liked_words }}")
+          [ -n "${{ inputs.disliked_words }}" ] && ARGS+=("--disliked-words=${{ inputs.disliked_words }}")
+          [ -n "${{ inputs.submission_limit }}" ] && ARGS+=("--submission-limit=${{ inputs.submission_limit }}")
+          npx tsx src/services/participate/run-contest.ts "${ARGS[@]}"
 
       - name: Skip — no new contest
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW != 'true' }}
