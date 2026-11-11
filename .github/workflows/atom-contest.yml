@@ -25,6 +25,9 @@ on:
       disliked_words:
         description: "Comma-separated words/roots to avoid entirely (e.g. smart,hub,pro)"
         required: false
+      submission_limit:
+        description: "Total entries to submit (default 25). 70% AI, 30% premium capped at 5. E.g. 70 → 65 AI + 5 premium"
+        required: false
 
 jobs:
   participate:
@@ -79,7 +82,9 @@ jobs:
           if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
           DISLIKED_WORDS_FLAG=""
           if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
-          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG
+          SUBMISSION_LIMIT_FLAG=""
+          if [ -n "${{ inputs.submission_limit }}" ]; then SUBMISSION_LIMIT_FLAG="--submission-limit=${{ inputs.submission_limit }}"; fi
+          npx tsx src/services/participate/run-contest.ts "${{ inputs.contest_url }}" $DRY_RUN_FLAG $TEST_NAMES_FLAG $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG $SUBMISSION_LIMIT_FLAG
 
       - name: Run contest (auto-detected)
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW == 'true' }}
@@ -99,7 +104,9 @@ jobs:
           if [ -n "${{ inputs.liked_words }}" ]; then LIKED_WORDS_FLAG="--liked-words=${{ inputs.liked_words }}"; fi
           DISLIKED_WORDS_FLAG=""
           if [ -n "${{ inputs.disliked_words }}" ]; then DISLIKED_WORDS_FLAG="--disliked-words=${{ inputs.disliked_words }}"; fi
-          npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}" $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG
+          SUBMISSION_LIMIT_FLAG=""
+          if [ -n "${{ inputs.submission_limit }}" ]; then SUBMISSION_LIMIT_FLAG="--submission-limit=${{ inputs.submission_limit }}"; fi
+          npx tsx src/services/participate/run-contest.ts "${{ steps.detect.outputs.CONTEST_URL }}" $LIKED_NAMES_FLAG $DISLIKED_NAMES_FLAG $LIKED_WORDS_FLAG $DISLIKED_WORDS_FLAG $SUBMISSION_LIMIT_FLAG
 
       - name: Skip — no new contest
         if: ${{ !inputs.contest_url && steps.detect.outputs.IS_NEW != 'true' }}

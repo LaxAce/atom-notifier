@@ -4,7 +4,7 @@ import { scrapeContestPage, parseContestHtml, parseBriefWithAI, pickNameStyle, B
 import { generateNames } from "./generate-names";
 import { selectPremiumNames } from "./select-premium";
 import { submitEntries } from "./submit-entries";
-import { ENTRIES_PER_CONTEST, NAMES_FROM_AI, NAMES_FROM_PREMIUM, NAMES_FROM_AI_NO_PREMIUM } from "./submission-limits";
+import { DEFAULT_SUBMISSION_LIMIT, computeLimits } from "./submission-limits";
 
 const CACHE_FILE = path.join(__dirname, "logs", "names-cache.json");
 
@@ -33,6 +33,7 @@ async function runContest(
         dislikedNames = "",
         likedWords = "",
         dislikedWords = "",
+        submissionLimit = DEFAULT_SUBMISSION_LIMIT,
     } = {}
 ): Promise<Record<string, any>> {
     if (contestUrl.includes("/logo-design-contest/")) {
@@ -133,6 +134,8 @@ async function runContest(
         return log;
     }
 
+    const { ai: aiLimit, premium: premiumLimit } = computeLimits(submissionLimit);
+
     const cacheKey = contestCacheKey(contestUrl);
     const namesCache = loadNamesCache();
     const cached = namesCache[cacheKey];
@@ -150,12 +153,13 @@ async function runContest(
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
         const nameOnlyContest = !briefData.domainRequired;
-        const aiCount = nameOnlyContest ? NAMES_FROM_AI_NO_PREMIUM : (briefData.premiumAllowed ? NAMES_FROM_AI : NAMES_FROM_AI_NO_PREMIUM);
+        // Name-only and premium-disallowed: all slots go to AI
+        const aiCount = (nameOnlyContest || !briefData.premiumAllowed) ? submissionLimit : aiLimit;
 
         if (nameOnlyContest) {
             console.error(`\nStep 2/5: Name-only contest — generating ${aiCount} names via OpenAI (no domain check)...`);
         } else {
-            console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${NAMES_FROM_AI} AI + ${NAMES_FROM_PREMIUM} premium)` : ` (${NAMES_FROM_AI_NO_PREMIUM} AI, premium not allowed)`}...`);
+            console.error(`\nStep 2/5: Generating ${aiCount} names via OpenAI${briefData.premiumAllowed ? ` (${aiLimit} AI + ${premiumLimit} premium, total ${submissionLimit})` : ` (${submissionLimit} AI, premium not allowed)`}...`);
         }
 
         try {
@@ -191,9 +195,9 @@ async function runContest(
             console.error(`\nStep 3/5: Skipping premium listings (contest does not accept premium domains)`);
             log.steps.selectPremium = { success: true, count: 0, names: [], skipped: "contest does not accept premium domains" };
         } else {
-            console.error(`\nStep 3/5: Selecting ${NAMES_FROM_PREMIUM} premium listings...`);
+            console.error(`\nStep 3/5: Selecting ${premiumLimit} premium listings...`);
             try {
-                premiumNames = selectPremiumNames(briefData.compressedBrief, briefData.industry, NAMES_FROM_PREMIUM);
+                premiumNames = selectPremiumNames(briefData.compressedBrief, briefData.industry, premiumLimit);
                 const industryNote = briefData.industry || "no industry detected — using generalist names";
                 log.steps.selectPremium = { success: true, count: premiumNames.length, names: premiumNames, industryNote };
                 console.error(`  Premium names (${industryNote}): ${premiumNames.join(", ")}`);
@@ -208,7 +212,7 @@ async function runContest(
         console.error(`  Names cached for contest ${cacheKey}`);
     }
 
-    const allEntries = dedup([...premiumNames, ...aiNames]).slice(0, ENTRIES_PER_CONTEST);
+    const allEntries = dedup([...premiumNames, ...aiNames]).slice(0, submissionLimit);
     console.error(`\nStep 4/5: Prepared ${allEntries.length} entries total`);
     console.error(`  Premium: ${premiumNames.length} | AI: ${aiNames.length}`);
     console.error(`  All entries: ${allEntries.join(", ")}`);
@@ -294,13 +298,17 @@ if (require.main === module) {
         const likedWords = likedWordsArg ? likedWordsArg.slice("--liked-words=".length) : "";
         const dislikedWordsArg = args.find((a) => a.startsWith("--disliked-words="));
         const dislikedWords = dislikedWordsArg ? dislikedWordsArg.slice("--disliked-words=".length) : "";
+        const submissionLimitArg = args.find((a) => a.startsWith("--submission-limit="));
+        const submissionLimit = submissionLimitArg
+            ? parseInt(submissionLimitArg.slice("--submission-limit=".length), 10)
+            : DEFAULT_SUBMISSION_LIMIT;
 
         if (!contestUrl) {
-            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--test-names=Name1,...] [--liked-names=Name1,...] [--disliked-names=Name1,...] [--liked-words=word1,...] [--disliked-words=word1,...]");
+            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--submission-limit=N] [--test-names=Name1,...] [--liked-names=Name1,...] [--disliked-names=Name1,...] [--liked-words=word1,...] [--disliked-words=word1,...]");
             process.exit(1);
         }
 
-        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames, likedNames, dislikedNames, likedWords, dislikedWords });
+        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames, likedNames, dislikedNames, likedWords, dislikedWords, submissionLimit });
         console.log(JSON.stringify(result, null, 2));
         process.exit(result.result?.success ? 0 : 1);
     })();
