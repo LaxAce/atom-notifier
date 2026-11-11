@@ -34,6 +34,7 @@ async function runContest(
         likedWords = "",
         dislikedWords = "",
         submissionLimit = DEFAULT_SUBMISSION_LIMIT,
+        generateDescriptions = true,
     } = {}
 ): Promise<Record<string, any>> {
     if (contestUrl.includes("/logo-design-contest/")) {
@@ -46,7 +47,7 @@ async function runContest(
     console.error(`\n${"=".repeat(60)}`);
     console.error(`Atom Contest Automation`);
     console.error(`URL: ${contestUrl}`);
-    console.error(`Dry run: ${dryRun} | Domain check: ${requireDomains}`);
+    console.error(`Dry run: ${dryRun} | Domain check: ${requireDomains} | Descriptions: ${generateDescriptions}`);
     console.error(`${"=".repeat(60)}\n`);
 
     const log: Record<string, any> = {
@@ -116,6 +117,7 @@ async function runContest(
                 dryRun,
                 brief: briefData.compressedBrief,
                 contestTitle: briefData.title,
+                generateDescriptions,
             });
         } catch (err) {
             log.steps.submit = { success: false, error: (err as any).message };
@@ -153,7 +155,6 @@ async function runContest(
         console.error(`  Premium names (${premiumNames.length}): ${premiumNames.join(", ")}`);
     } else {
         const nameOnlyContest = !briefData.domainRequired;
-        // Name-only and premium-disallowed: all slots go to AI
         const aiCount = (nameOnlyContest || !briefData.premiumAllowed) ? submissionLimit : aiLimit;
 
         if (nameOnlyContest) {
@@ -226,6 +227,7 @@ async function runContest(
             dryRun,
             brief: briefData.compressedBrief,
             contestTitle: briefData.title,
+            generateDescriptions,
         });
 
         log.steps.submit = {
@@ -288,6 +290,7 @@ if (require.main === module) {
         const contestUrl = args.find((a) => a.startsWith("http"));
         const dryRun = args.includes("--dry-run");
         const requireDomains = !args.includes("--no-domains");
+        const generateDescriptions = !args.includes("--no-descriptions");
         const testNamesArg = args.find((a) => a.startsWith("--test-names="));
         const testNames = testNamesArg ? testNamesArg.slice("--test-names=".length).split(",").map((n) => n.trim()).filter(Boolean) : null;
         const likedNamesArg = args.find((a) => a.startsWith("--liked-names="));
@@ -304,11 +307,11 @@ if (require.main === module) {
             : DEFAULT_SUBMISSION_LIMIT;
 
         if (!contestUrl) {
-            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--submission-limit=N] [--test-names=Name1,...] [--liked-names=Name1,...] [--disliked-names=Name1,...] [--liked-words=word1,...] [--disliked-words=word1,...]");
+            console.error("Usage: npx tsx run-contest.ts <contest-url> [--dry-run] [--no-domains] [--no-descriptions] [--submission-limit=N] [--test-names=Name1,...] [--liked-names=Name1,...] [--disliked-names=Name1,...] [--liked-words=word1,...] [--disliked-words=word1,...]");
             process.exit(1);
         }
 
-        const result = await runContest(contestUrl, { dryRun, requireDomains, testNames, likedNames, dislikedNames, likedWords, dislikedWords, submissionLimit });
+        const result = await runContest(contestUrl, { dryRun, requireDomains, generateDescriptions, testNames, likedNames, dislikedNames, likedWords, dislikedWords, submissionLimit });
         console.log(JSON.stringify(result, null, 2));
         process.exit(result.result?.success ? 0 : 1);
     })();
