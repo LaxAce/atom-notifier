@@ -10,6 +10,10 @@ on:
         description: "Dry run (generate names but don't submit)"
         type: boolean
         default: false
+      generate_descriptions:
+        description: "Generate AI descriptions for each name before submitting (default: true)"
+        type: boolean
+        default: true
       test_names:
         description: "Comma-separated test names to submit directly (skips OpenAI generation)"
         required: false
@@ -72,6 +76,7 @@ jobs:
         run: |
           ARGS=("${{ inputs.contest_url }}")
           [ "${{ inputs.dry_run }}" = "true" ] && ARGS+=("--dry-run")
+          [ "${{ inputs.generate_descriptions }}" = "false" ] && ARGS+=("--no-descriptions")
           [ -n "${{ inputs.test_names }}" ] && ARGS+=("--test-names=${{ inputs.test_names }}")
           [ -n "${{ inputs.liked_names }}" ] && ARGS+=("--liked-names=${{ inputs.liked_names }}")
           [ -n "${{ inputs.disliked_names }}" ] && ARGS+=("--disliked-names=${{ inputs.disliked_names }}")
@@ -91,6 +96,7 @@ jobs:
           CONTEST_COOKIES: ${{ secrets.CONTEST_COOKIES }}
         run: |
           ARGS=("${{ steps.detect.outputs.CONTEST_URL }}")
+          [ "${{ inputs.generate_descriptions }}" = "false" ] && ARGS+=("--no-descriptions")
           [ -n "${{ inputs.liked_names }}" ] && ARGS+=("--liked-names=${{ inputs.liked_names }}")
           [ -n "${{ inputs.disliked_names }}" ] && ARGS+=("--disliked-names=${{ inputs.disliked_names }}")
           [ -n "${{ inputs.liked_words }}" ] && ARGS+=("--liked-words=${{ inputs.liked_words }}")

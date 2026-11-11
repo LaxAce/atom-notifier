@@ -52,12 +52,6 @@ async function dumpPageState(page: any, label: string): Promise<void> {
     console.error(`──────────────────────────────────────`);
 }
 
-/**
- * Confirm the domain input's React event handlers are mounted before submitting.
- * Types a single character and verifies the input value updates — this only
- * succeeds once React's onChange handler is attached. Retries up to 8 times
- * with 1s gaps before giving up and proceeding anyway.
- */
 async function waitForFormReady(
     page: any,
     findInput: () => Promise<any>
@@ -111,20 +105,13 @@ async function waitForFormReady(
 }
 
 function stripAiTells(text: string): string {
-    // Em dashes and en dashes are strong AI tells. Replace with a comma+space
-    // so the sentence still reads naturally.
     return text
-        .replace(/\s*[—–]\s*/g, ", ") // — and –
-        .replace(/,\s*,/g, ",")               // clean up double commas
+        .replace(/\s*[—–]\s*/g, ", ")
+        .replace(/,\s*,/g, ",")
         .trim();
 }
 
-/**
- * Generate a short, human-sounding description for every name in one OpenAI
- * call. Returns a map of { name -> description }. Falls back gracefully to {}
- * if OPENAI_API_KEY is absent, brief is empty, or the call fails.
- */
-async function generateDescriptions(
+async function generateDescriptionsBatch(
     names: string[],
     brief: string,
     contestTitle: string
@@ -164,7 +151,6 @@ async function generateDescriptions(
         const raw = res.choices[0].message.content?.trim() || "{}";
         const parsed = JSON.parse(raw) as Record<string, string>;
 
-        // Strip any em/en dashes that slipped through despite the instruction.
         const cleaned: Record<string, string> = {};
         for (const [name, desc] of Object.entries(parsed)) {
             cleaned[name] = stripAiTells(String(desc));
@@ -181,7 +167,7 @@ async function generateDescriptions(
 export async function submitEntries(
     contestUrl: string,
     names: string[],
-    { dryRun = false, brief = "", contestTitle = "" } = {}
+    { dryRun = false, brief = "", contestTitle = "", generateDescriptions = true } = {}
 ): Promise<{ submitted: string[]; failed: { name: string; error: string }[]; alreadySubmitted: string[] }> {
     const cookies = process.env.CONTEST_COOKIES;
     if (!cookies) throw new Error("CONTEST_COOKIES env var is required");
@@ -192,8 +178,13 @@ export async function submitEntries(
         return { submitted: [...names], failed: [], alreadySubmitted: [] };
     }
 
-    console.error(`Generating name descriptions via OpenAI...`);
-    const descriptions = await generateDescriptions(names, brief, contestTitle);
+    let descriptions: Record<string, string> = {};
+    if (generateDescriptions) {
+        console.error(`Generating name descriptions via OpenAI...`);
+        descriptions = await generateDescriptionsBatch(names, brief, contestTitle);
+    } else {
+        console.error(`Skipping description generation (--no-descriptions)`);
+    }
 
     console.error(`Launching browser (headless)...`);
     const browser = await chromium.launch({ headless: true });
@@ -213,7 +204,6 @@ export async function submitEntries(
     });
 
     try {
-        // Navigate directly to #tab-2 to open the submission panel on page load
         const navUrl = contestUrl.replace(/#.*$/, "") + "#tab-2";
         console.error(`Navigating to contest: ${navUrl}`);
         await page.goto(navUrl, { waitUntil: "load", timeout: 90000 });
@@ -349,7 +339,6 @@ export async function submitEntries(
             throw new Error("Could not find Domain Name or Company Name input. HTML dumped to logs/debug-page.html.");
         }
 
-        // name-only contests have a Company Name field but no Domain field
         const nameOnlyForm = !firstDomainInput && !!firstCompanyInput;
         console.error(`Form layout: ${nameOnlyForm ? "Company Name only (name-only contest)" : (firstCompanyInput ? "Company Name + Domain Name (two fields)" : "Domain Name only (one field)")}`);
 
@@ -370,7 +359,6 @@ export async function submitEntries(
                     if (ic) (ic as HTMLElement).style.display = "none";
                 }).catch(() => {});
 
-                // Name-only contest: fill Company Name and submit — no domain check
                 if (nameOnlyForm) {
                     const companyInput = await findCompanyNameInput();
                     if (!companyInput) throw new Error("Company Name input disappeared");
@@ -426,7 +414,6 @@ export async function submitEntries(
                     console.error(`✓ Submitted: ${name}`);
 
                     await sleep(1500);
-                    // Re-open entry panel for next name
                     for (const sel of [
                         "button:has-text('SUBMIT YOUR ENTRY')",
                         "a:has-text('SUBMIT YOUR ENTRY')",
@@ -607,16 +594,17 @@ if (require.main === module) {
         const dryRun = has("--dry-run");
         const brief = get("--brief") || "";
         const contestTitle = get("--title") || "";
+        const generateDescriptions = !has("--no-descriptions");
 
         if (!contestUrl || !namesStr) {
-            console.error("Usage: npx tsx submit-entries.ts --contest-url <url> --names <comma-separated-names> [--brief <text>] [--title <text>]");
+            console.error("Usage: npx tsx submit-entries.ts --contest-url <url> --names <comma-separated-names> [--brief <text>] [--title <text>] [--no-descriptions]");
             process.exit(1);
         }
 
         const names = namesStr.split(",").map((n) => n.trim()).filter(Boolean);
         console.error(`Submitting ${names.length} names to ${contestUrl}${dryRun ? " (DRY RUN)" : ""}...`);
 
-        const result = await submitEntries(contestUrl, names, { dryRun, brief, contestTitle });
+        const result = await submitEntries(contestUrl, names, { dryRun, brief, contestTitle, generateDescriptions });
         console.log(JSON.stringify(result, null, 2));
         console.error(`Done: ${result.submitted.length} submitted, ${result.failed.length} failed, ${result.alreadySubmitted.length} already submitted`);
     })();
