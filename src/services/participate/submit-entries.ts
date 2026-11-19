@@ -198,8 +198,15 @@ export async function submitEntries(
     const failed: { name: string; error: string }[] = [];
     const alreadySubmitted: string[] = [];
 
+    // Track domain-rejection dialogs fired on blur so we can skip instead of submitting
+    let dialogRejectedDomain = false;
+
     page.on("dialog", async (dialog: any) => {
-        console.error(`Dialog: "${dialog.message()}" → dismissing`);
+        const msg = dialog.message();
+        console.error(`Dialog: "${msg}" → dismissing`);
+        if (/valid domain|currently available/i.test(msg)) {
+            dialogRejectedDomain = true;
+        }
         await dialog.accept();
     });
 
@@ -456,8 +463,21 @@ export async function submitEntries(
 
                 console.error(`Filled domain name: ${name}`);
 
+                // Reset dialog flag before blur so we can detect a fresh rejection
+                dialogRejectedDomain = false;
+
                 await input.press("Tab");
                 console.error(`Triggered blur for availability check: ${name}`);
+
+                // Wait briefly for the dialog to fire if atom.com rejects the domain on blur
+                await page.waitForTimeout(600);
+
+                if (dialogRejectedDomain) {
+                    dialogRejectedDomain = false;
+                    console.error(`✗ Skipped (domain rejected by atom.com on blur): ${name}`);
+                    failed.push({ name, error: "Domain rejected by atom.com (not available or invalid)" });
+                    continue;
+                }
 
                 try {
                     await page.waitForFunction(
@@ -488,6 +508,14 @@ export async function submitEntries(
                     console.error(`Availability confirmed: ${name}`);
                 } catch {
                     console.error(`Availability check timed out — submitting anyway: ${name}`);
+                }
+
+                // Check once more in case dialog fired during the waitForFunction
+                if (dialogRejectedDomain) {
+                    dialogRejectedDomain = false;
+                    console.error(`✗ Skipped (domain rejected by atom.com after check): ${name}`);
+                    failed.push({ name, error: "Domain rejected by atom.com (not available or invalid)" });
+                    continue;
                 }
 
                 const description = descriptions[name] || "";
